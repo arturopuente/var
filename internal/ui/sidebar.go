@@ -28,33 +28,37 @@ func (d fileItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 		return
 	}
 
-	statusStyle := lipgloss.NewStyle().Width(3)
+	isSelected := index == m.Index()
+	width := m.Width()
+
+	// Determine status color
+	var statusColor lipgloss.Color
 	switch i.Status {
 	case "M":
-		statusStyle = statusStyle.Foreground(lipgloss.Color("3")) // Yellow
+		statusColor = lipgloss.Color("3") // Yellow
 	case "A", "??":
-		statusStyle = statusStyle.Foreground(lipgloss.Color("2")) // Green
+		statusColor = lipgloss.Color("2") // Green
 	case "D":
-		statusStyle = statusStyle.Foreground(lipgloss.Color("1")) // Red
+		statusColor = lipgloss.Color("1") // Red
+	default:
+		statusColor = lipgloss.Color("7") // White/default
 	}
 
-	status := statusStyle.Render(i.Status)
-	path := i.Path
+	if isSelected {
+		// Selected: blue background, white text (using hex colors)
+		bg := lipgloss.Color("#0066cc")
+		fg := lipgloss.Color("#ffffff")
+		statusStyle := lipgloss.NewStyle().Width(3).Foreground(fg).Background(bg).Bold(true)
+		pathStyle := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
 
-	str := fmt.Sprintf("%s %s", status, path)
-
-	fn := lipgloss.NewStyle().PaddingLeft(1).Render
-	if index == m.Index() {
-		fn = func(s ...string) string {
-			return lipgloss.NewStyle().
-				PaddingLeft(1).
-				Foreground(lipgloss.Color("6")).
-				Bold(true).
-				Render(s...)
-		}
+		line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), pathStyle.Render(i.Path))
+		fmt.Fprint(w, lipgloss.NewStyle().Width(width).Background(bg).Render(line))
+	} else {
+		// Unselected: normal styling
+		statusStyle := lipgloss.NewStyle().Width(3).Foreground(statusColor)
+		line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), i.Path)
+		fmt.Fprint(w, line)
 	}
-
-	fmt.Fprint(w, fn(str))
 }
 
 // Sidebar wraps a bubbles/list for file selection

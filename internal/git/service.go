@@ -57,7 +57,12 @@ func (s *Service) GetModifiedFiles() ([]FileStatus, error) {
 
 // GetDiff returns the diff for a file in the working copy
 func (s *Service) GetDiff(filePath string) (string, error) {
-	cmd := exec.Command("git", "diff", "--color=always", "--", filePath)
+	return s.GetDiffWithContext(filePath, 3) // default context
+}
+
+// GetDiffWithContext returns the diff with specified lines of context
+func (s *Service) GetDiffWithContext(filePath string, context int) (string, error) {
+	cmd := exec.Command("git", "diff", "--color=always", fmt.Sprintf("-U%d", context), "--", filePath)
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
@@ -67,6 +72,17 @@ func (s *Service) GetDiff(filePath string) (string, error) {
 		}
 		// Check if file is untracked
 		return s.getUntrackedDiff(filePath)
+	}
+	return string(output), nil
+}
+
+// GetFileContent returns the full content of a file in the working copy with line numbers
+func (s *Service) GetFileContent(filePath string) (string, error) {
+	fullPath := filepath.Join(s.repoPath, filePath)
+	cmd := exec.Command("cat", "-n", fullPath)
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
 	}
 	return string(output), nil
 }
@@ -110,13 +126,38 @@ func (s *Service) GetFileCommits(filePath string) ([]Commit, error) {
 
 // GetDiffAtCommit returns the diff for a file at a specific commit
 func (s *Service) GetDiffAtCommit(filePath, commitHash string) (string, error) {
-	cmd := exec.Command("git", "show", "--color=always", commitHash, "--", filePath)
+	return s.GetDiffAtCommitWithContext(filePath, commitHash, 3)
+}
+
+// GetDiffAtCommitWithContext returns the diff with specified lines of context
+func (s *Service) GetDiffAtCommitWithContext(filePath, commitHash string, context int) (string, error) {
+	cmd := exec.Command("git", "show", "--color=always", fmt.Sprintf("-U%d", context), commitHash, "--", filePath)
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
 		return "", err
 	}
 	return string(output), nil
+}
+
+// GetFileContentAtCommit returns the full content of a file at a specific commit
+func (s *Service) GetFileContentAtCommit(filePath, commitHash string) (string, error) {
+	cmd := exec.Command("git", "show", fmt.Sprintf("%s:%s", commitHash, filePath))
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	// Add line numbers manually
+	lines := strings.Split(string(output), "\n")
+	var result strings.Builder
+	for i, line := range lines {
+		if i == len(lines)-1 && line == "" {
+			continue
+		}
+		result.WriteString(fmt.Sprintf("%6d\t%s\n", i+1, line))
+	}
+	return result.String(), nil
 }
 
 // GetRecentCommits returns recent commits for the repository

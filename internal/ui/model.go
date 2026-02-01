@@ -15,6 +15,14 @@ const (
 	focusDiffView
 )
 
+type viewMode int
+
+const (
+	viewModeDiff       viewMode = iota // Default diff (3 lines context)
+	viewModeContext                    // Diff with 10 lines context
+	viewModeFullFile                   // Full file view
+)
+
 // Model is the root model composing sidebar and diff view
 type Model struct {
 	sidebar      Sidebar
@@ -37,6 +45,7 @@ type Model struct {
 	singleFileMode   bool
 	fileCommits      []git.Commit // Commits for current file
 	fileCommitIndex  int          // -1 for working copy, 0+ for file commits
+	viewMode         viewMode     // Current view mode in single-file mode
 
 	err error
 }
@@ -163,12 +172,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					}
 				}
 			}
+		case "1":
+			if m.singleFileMode {
+				m.viewMode = viewModeDiff
+				return m, m.loadDiffForFileCommit
+			}
+		case "2":
+			if m.singleFileMode {
+				m.viewMode = viewModeContext
+				return m, m.loadDiffForFileCommit
+			}
+		case "3":
+			if m.singleFileMode {
+				m.viewMode = viewModeFullFile
+				return m, m.loadDiffForFileCommit
+			}
 		case "esc":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
 					// Exit single-file mode
 					m.singleFileMode = false
 					m.fileCommitIndex = -1
+					m.viewMode = viewModeDiff
 					m.focus = focusSidebar
 					m.sidebar.SetFocused(true)
 					m.diffView.SetFocused(false)
@@ -332,16 +357,40 @@ func (m *Model) loadDiffForFileCommit() tea.Msg {
 		return diffLoadedMsg{content: ""}
 	}
 
-	var diff string
+	var content string
 	var err error
 
-	if m.fileCommitIndex < 0 {
-		// Working copy diff
-		diff, err = m.gitService.GetDiff(m.currentFile)
-	} else if m.fileCommitIndex < len(m.fileCommits) {
-		// File commit diff
-		commit := m.fileCommits[m.fileCommitIndex]
-		diff, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
+	switch m.viewMode {
+	case viewModeFullFile:
+		// Full file view
+		if m.fileCommitIndex < 0 {
+			content, err = m.gitService.GetFileContent(m.currentFile)
+		} else if m.fileCommitIndex < len(m.fileCommits) {
+			commit := m.fileCommits[m.fileCommitIndex]
+			content, err = m.gitService.GetFileContentAtCommit(m.currentFile, commit.Hash)
+		}
+		if err != nil {
+			return ErrorMsg{Err: err}
+		}
+		return diffLoadedMsg{content: content}
+
+	case viewModeContext:
+		// Diff with 10 lines of context
+		if m.fileCommitIndex < 0 {
+			content, err = m.gitService.GetDiffWithContext(m.currentFile, 10)
+		} else if m.fileCommitIndex < len(m.fileCommits) {
+			commit := m.fileCommits[m.fileCommitIndex]
+			content, err = m.gitService.GetDiffAtCommitWithContext(m.currentFile, commit.Hash, 10)
+		}
+
+	default:
+		// Default diff (3 lines context)
+		if m.fileCommitIndex < 0 {
+			content, err = m.gitService.GetDiff(m.currentFile)
+		} else if m.fileCommitIndex < len(m.fileCommits) {
+			commit := m.fileCommits[m.fileCommitIndex]
+			content, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
+		}
 	}
 
 	if err != nil {
@@ -350,9 +399,9 @@ func (m *Model) loadDiffForFileCommit() tea.Msg {
 
 	// Render through delta
 	diffWidth := m.width - int(float64(m.width)*0.20) - 6
-	rendered, err := m.deltaService.Render(diff, diffWidth)
+	rendered, err := m.deltaService.Render(content, diffWidth)
 	if err != nil {
-		rendered = diff
+		rendered = content
 	}
 
 	return diffLoadedMsg{content: rendered}
@@ -369,7 +418,7 @@ func (m Model) View() string {
 
 	var help string
 	if m.singleFileMode {
-		help = HelpStyle.Render("[d/u: scroll | [/]: file history | esc: exit file mode | q: quit]")
+		help = HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | esc: exit | q: quit]")
 	} else {
 		help = HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | t: filter | esc: working copy | q: quit]")
 	}
