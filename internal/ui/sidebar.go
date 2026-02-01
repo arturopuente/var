@@ -79,7 +79,6 @@ func NewSidebar(items []FileItem, width, height int) Sidebar {
 	l.SetFilteringEnabled(true)
 	l.Styles.Title = lipgloss.NewStyle().
 		Bold(true).
-		Foreground(lipgloss.Color("5")).
 		Padding(0, 1)
 
 	return Sidebar{
@@ -143,15 +142,14 @@ func (s *Sidebar) Update(msg tea.Msg) (Sidebar, tea.Cmd) {
 func (s *Sidebar) View() string {
 	style := lipgloss.NewStyle().
 		Width(s.width).
-		Height(s.height)
+		Height(s.height).
+		BorderStyle(lipgloss.RoundedBorder())
 
 	if s.isFocused {
-		style = style.BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("5"))
-	} else {
-		style = style.BorderStyle(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("8"))
+		// lazygit: green + bold for active border
+		style = style.BorderForeground(lipgloss.Color("2")) // green
 	}
+	// inactive: no BorderForeground = terminal default
 
 	return style.Render(s.list.View())
 }

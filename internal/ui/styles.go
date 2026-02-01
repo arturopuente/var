@@ -20,6 +20,6 @@ var (
 			Foreground(ColorSecondary)
 
 	HelpStyle = lipgloss.NewStyle().
-			Foreground(ColorSecondary).
+			Foreground(lipgloss.Color("4")). // blue like lazygit optionsTextColor
 			Padding(0, 1)
 )

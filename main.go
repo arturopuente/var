@@ -42,11 +42,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Check if delta is available
-	if !delta.IsAvailable() {
-		fmt.Fprintf(os.Stderr, "Warning: delta is not installed. Diffs will be shown without syntax highlighting.\n")
-	}
-
 	// Initialize services
 	gitService := git.NewService(absPath)
 	deltaService := delta.NewService()

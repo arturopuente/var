@@ -91,16 +91,7 @@ func (d *DiffView) Update(msg tea.Msg) (DiffView, tea.Cmd) {
 }
 
 func (d *DiffView) View() string {
-	headerStyle := lipgloss.NewStyle().
-		Bold(true).
-		Foreground(lipgloss.Color("5")).
-		Padding(0, 1)
-
-	footerStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("8")).
-		Padding(0, 1)
-
-	// Build header
+	// Build header - just the content, no colored styling
 	header := d.filePath
 	if d.commitIndex >= 0 && d.commitCount > 0 {
 		header = fmt.Sprintf("%s (%d/%d: %s)", d.filePath, d.commitIndex+1, d.commitCount, d.commitHash)
@@ -112,23 +103,23 @@ func (d *DiffView) View() string {
 	scrollPercent := d.viewport.ScrollPercent() * 100
 	footer := fmt.Sprintf("%.0f%%", scrollPercent)
 
-	borderStyle := lipgloss.RoundedBorder()
-	borderColor := lipgloss.Color("8")
-	if d.isFocused {
-		borderColor = lipgloss.Color("5")
-	}
-
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
-		headerStyle.Render(header),
+		lipgloss.NewStyle().Bold(true).Padding(0, 1).Render(header),
 		d.viewport.View(),
-		footerStyle.Render(footer),
+		lipgloss.NewStyle().Faint(true).Padding(0, 1).Render(footer),
 	)
 
-	return lipgloss.NewStyle().
+	style := lipgloss.NewStyle().
 		Width(d.width).
 		Height(d.height).
-		BorderStyle(borderStyle).
-		BorderForeground(borderColor).
-		Render(content)
+		BorderStyle(lipgloss.RoundedBorder())
+
+	if d.isFocused {
+		// lazygit: green for active border
+		style = style.BorderForeground(lipgloss.Color("2"))
+	}
+	// inactive: no BorderForeground = terminal default
+
+	return style.Render(content)
 }
