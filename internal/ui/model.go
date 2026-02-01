@@ -34,7 +34,15 @@ type Model struct {
 }
 
 func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
+	// Initialize with empty items and default dimensions
+	// They'll be resized when WindowSizeMsg arrives
+	sidebar := NewSidebar([]FileItem{}, 40, 20)
+	sidebar.SetFocused(true)
+	diffView := NewDiffView(80, 20)
+
 	return Model{
+		sidebar:      sidebar,
+		diffView:     diffView,
 		gitService:   gitService,
 		deltaService: deltaService,
 		focus:        focusSidebar,
