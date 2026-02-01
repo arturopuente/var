@@ -152,6 +152,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
 		m.diffView.SetFileInfo(msg.path, msg.commitIndex, msg.commitCount, msg.commitHash)
+		if msg.commits != nil {
+			m.commits = msg.commits
+		}
 		if msg.commitHash == "" {
 			m.sidebar.SetRevision("working copy")
 		} else {
@@ -179,6 +182,7 @@ type diffLoadedMsg struct {
 	commitIndex int
 	commitCount int
 	commitHash  string
+	commits     []git.Commit
 }
 
 func (m *Model) loadDiffAndCommits() tea.Msg {
@@ -188,7 +192,6 @@ func (m *Model) loadDiffAndCommits() tea.Msg {
 
 	// Load commits for this file
 	commits, _ := m.gitService.GetFileCommits(m.currentFile)
-	m.commits = commits
 
 	// Load working copy diff
 	diff, err := m.gitService.GetDiff(m.currentFile)
@@ -209,6 +212,7 @@ func (m *Model) loadDiffAndCommits() tea.Msg {
 		commitIndex: -1,
 		commitCount: len(commits),
 		commitHash:  "",
+		commits:     commits,
 	}
 }
 
