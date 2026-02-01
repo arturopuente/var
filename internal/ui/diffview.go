@@ -23,7 +23,7 @@ type DiffView struct {
 }
 
 func NewDiffView(width, height int) DiffView {
-	vp := viewport.New(width, height-4) // Account for header and footer
+	vp := viewport.New(width, height-2) // Account for borders only
 	vp.Style = lipgloss.NewStyle()
 
 	return DiffView{
@@ -39,7 +39,7 @@ func (d *DiffView) SetSize(width, height int) {
 	d.width = width
 	d.height = height
 	d.viewport.Width = width - 2  // Account for borders
-	d.viewport.Height = height - 4 // Account for header, footer, and borders
+	d.viewport.Height = height - 2 // Account for borders only
 }
 
 func (d *DiffView) SetContent(content string) {
