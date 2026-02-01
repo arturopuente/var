@@ -38,6 +38,7 @@ func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
 	// They'll be resized when WindowSizeMsg arrives
 	sidebar := NewSidebar([]FileItem{}, 40, 20)
 	sidebar.SetFocused(true)
+	sidebar.SetRevision("working copy")
 	diffView := NewDiffView(80, 20)
 
 	return Model{
@@ -151,6 +152,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
 		m.diffView.SetFileInfo(msg.path, msg.commitIndex, msg.commitCount, msg.commitHash)
+		if msg.commitHash == "" {
+			m.sidebar.SetRevision("working copy")
+		} else {
+			m.sidebar.SetRevision(msg.commitHash)
+		}
 
 	case ErrorMsg:
 		m.err = msg.Err

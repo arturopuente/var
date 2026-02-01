@@ -59,10 +59,11 @@ func (d fileItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 
 // Sidebar wraps a bubbles/list for file selection
 type Sidebar struct {
-	list      list.Model
-	width     int
-	height    int
-	isFocused bool
+	list        list.Model
+	width       int
+	height      int
+	isFocused   bool
+	revision    string // "working copy" or commit hash
 }
 
 func NewSidebar(items []FileItem, width, height int) Sidebar {
@@ -109,6 +110,15 @@ func (s *Sidebar) SetFocused(focused bool) {
 
 func (s *Sidebar) IsFocused() bool {
 	return s.isFocused
+}
+
+func (s *Sidebar) SetRevision(revision string) {
+	s.revision = revision
+	if revision == "" || revision == "working copy" {
+		s.list.Title = "Files (working copy)"
+	} else {
+		s.list.Title = fmt.Sprintf("Files (%s)", revision)
+	}
 }
 
 func (s *Sidebar) IsFiltering() bool {
