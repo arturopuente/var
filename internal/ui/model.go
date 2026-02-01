@@ -62,8 +62,8 @@ func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
 		gitService:      gitService,
 		deltaService:    deltaService,
 		focus:           focusSidebar,
-		commitIndex:     -1, // Start at working copy
-		fileCommitIndex: -1,
+		commitIndex:     0, // Start at latest commit
+		fileCommitIndex: 0,
 	}
 }
 
@@ -80,11 +80,14 @@ func (m *Model) loadInitialData() tea.Msg {
 	// Load recent commits
 	commits, _ := m.gitService.GetRecentCommits(100)
 
-	// Load working copy files
-	files, _ := m.gitService.GetModifiedFiles()
-	items := make([]FileItem, len(files))
-	for i, f := range files {
-		items[i] = FileItem{Path: f.Path, Status: f.Status}
+	// Load files from first commit
+	var items []FileItem
+	if len(commits) > 0 {
+		files, _ := m.gitService.GetFilesInCommit(commits[0].Hash)
+		items = make([]FileItem, len(files))
+		for i, f := range files {
+			items[i] = FileItem{Path: f.Path, Status: f.Status}
+		}
 	}
 
 	return initialDataMsg{
@@ -132,7 +135,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Enter single-file mode
 			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
 				m.singleFileMode = true
-				m.fileCommitIndex = -1 // Start at working copy
+				m.fileCommitIndex = 0 // Start at most recent commit
 				m.focus = focusDiffView
 				m.sidebar.SetFocused(false)
 				m.diffView.SetFocused(true)
@@ -142,14 +145,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
 					// Navigate file commits - newer
-					if m.fileCommitIndex > -1 {
+					if m.fileCommitIndex > 0 {
 						m.fileCommitIndex--
 						m.updateSingleFileModeDisplay()
 						return m, m.loadDiffForFileCommit
 					}
 				} else {
 					// Navigate repo commits - newer
-					if m.commitIndex > -1 {
+					if m.commitIndex > 0 {
 						m.commitIndex--
 						return m, m.loadFilesForCurrentCommit
 					}
@@ -192,16 +195,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if m.singleFileMode {
 					// Exit single-file mode
 					m.singleFileMode = false
-					m.fileCommitIndex = -1
+					m.fileCommitIndex = 0
 					m.viewMode = viewModeDiff
 					m.focus = focusSidebar
 					m.sidebar.SetFocused(true)
 					m.diffView.SetFocused(false)
 					m.updateRevisionDisplay()
 					return m, m.loadDiffForCurrentFile
-				} else if m.commitIndex >= 0 {
-					// Return to working copy
-					m.commitIndex = -1
+				} else if m.commitIndex > 0 {
+					// Return to latest commit
+					m.commitIndex = 0
 					return m, m.loadFilesForCurrentCommit
 				}
 			}
@@ -274,10 +277,7 @@ func (m *Model) updateLayout() {
 }
 
 func (m *Model) updateRevisionDisplay() {
-	if m.commitIndex < 0 {
-		m.sidebar.SetRevision("working copy")
-		m.diffView.SetFileInfo(m.currentFile, -1, len(m.commits), "")
-	} else if m.commitIndex < len(m.commits) {
+	if m.commitIndex < len(m.commits) {
 		commit := m.commits[m.commitIndex]
 		m.sidebar.SetRevision(commit.Hash)
 		m.diffView.SetFileInfo(m.currentFile, m.commitIndex, len(m.commits), commit.Hash)
@@ -285,10 +285,7 @@ func (m *Model) updateRevisionDisplay() {
 }
 
 func (m *Model) updateSingleFileModeDisplay() {
-	if m.fileCommitIndex < 0 {
-		m.sidebar.SetRevision("FILE: working copy")
-		m.diffView.SetFileInfo(m.currentFile, -1, len(m.fileCommits), "")
-	} else if m.fileCommitIndex < len(m.fileCommits) {
+	if m.fileCommitIndex < len(m.fileCommits) {
 		commit := m.fileCommits[m.fileCommitIndex]
 		m.sidebar.SetRevision("FILE: " + commit.Hash)
 		m.diffView.SetFileInfo(m.currentFile, m.fileCommitIndex, len(m.fileCommits), commit.Hash)
@@ -303,14 +300,7 @@ func (m *Model) loadFileCommits() tea.Msg {
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
 	var files []FileItem
 
-	if m.commitIndex < 0 {
-		// Working copy
-		statusFiles, _ := m.gitService.GetModifiedFiles()
-		for _, f := range statusFiles {
-			files = append(files, FileItem{Path: f.Path, Status: f.Status})
-		}
-	} else if m.commitIndex < len(m.commits) {
-		// Specific commit
+	if m.commitIndex < len(m.commits) {
 		commit := m.commits[m.commitIndex]
 		commitFiles, _ := m.gitService.GetFilesInCommit(commit.Hash)
 		for _, f := range commitFiles {
@@ -322,24 +312,19 @@ func (m *Model) loadFilesForCurrentCommit() tea.Msg {
 }
 
 func (m *Model) loadDiffForCurrentFile() tea.Msg {
-	if m.currentFile == "" {
+	if m.currentFile == "" || m.commitIndex >= len(m.commits) {
 		return diffLoadedMsg{content: ""}
 	}
 
-	var diff string
-	var err error
-
-	if m.commitIndex < 0 {
-		// Working copy diff
-		diff, err = m.gitService.GetDiff(m.currentFile)
-	} else if m.commitIndex < len(m.commits) {
-		// Commit diff
-		commit := m.commits[m.commitIndex]
-		diff, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
-	}
+	commit := m.commits[m.commitIndex]
+	diff, err := m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
 
 	if err != nil {
 		return ErrorMsg{Err: err}
+	}
+
+	if diff == "" {
+		return diffLoadedMsg{content: "No changes to display"}
 	}
 
 	// Render through delta
@@ -353,22 +338,18 @@ func (m *Model) loadDiffForCurrentFile() tea.Msg {
 }
 
 func (m *Model) loadDiffForFileCommit() tea.Msg {
-	if m.currentFile == "" {
+	if m.currentFile == "" || m.fileCommitIndex >= len(m.fileCommits) {
 		return diffLoadedMsg{content: ""}
 	}
 
+	commit := m.fileCommits[m.fileCommitIndex]
 	var content string
 	var err error
 
 	switch m.viewMode {
 	case viewModeFullFile:
 		// Full file view
-		if m.fileCommitIndex < 0 {
-			content, err = m.gitService.GetFileContent(m.currentFile)
-		} else if m.fileCommitIndex < len(m.fileCommits) {
-			commit := m.fileCommits[m.fileCommitIndex]
-			content, err = m.gitService.GetFileContentAtCommit(m.currentFile, commit.Hash)
-		}
+		content, err = m.gitService.GetFileContentAtCommit(m.currentFile, commit.Hash)
 		if err != nil {
 			return ErrorMsg{Err: err}
 		}
@@ -376,25 +357,19 @@ func (m *Model) loadDiffForFileCommit() tea.Msg {
 
 	case viewModeContext:
 		// Diff with 10 lines of context
-		if m.fileCommitIndex < 0 {
-			content, err = m.gitService.GetDiffWithContext(m.currentFile, 10)
-		} else if m.fileCommitIndex < len(m.fileCommits) {
-			commit := m.fileCommits[m.fileCommitIndex]
-			content, err = m.gitService.GetDiffAtCommitWithContext(m.currentFile, commit.Hash, 10)
-		}
+		content, err = m.gitService.GetDiffAtCommitWithContext(m.currentFile, commit.Hash, 10)
 
 	default:
 		// Default diff (3 lines context)
-		if m.fileCommitIndex < 0 {
-			content, err = m.gitService.GetDiff(m.currentFile)
-		} else if m.fileCommitIndex < len(m.fileCommits) {
-			commit := m.fileCommits[m.fileCommitIndex]
-			content, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
-		}
+		content, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
 	}
 
 	if err != nil {
 		return ErrorMsg{Err: err}
+	}
+
+	if content == "" {
+		return diffLoadedMsg{content: "No changes to display"}
 	}
 
 	// Render through delta
@@ -420,7 +395,7 @@ func (m Model) View() string {
 	if m.singleFileMode {
 		help = HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | esc: exit | q: quit]")
 	} else {
-		help = HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | t: filter | esc: working copy | q: quit]")
+		help = HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | /: filter | esc: latest | q: quit]")
 	}
 
 	main := lipgloss.JoinHorizontal(
