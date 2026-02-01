@@ -26,12 +26,17 @@ type Model struct {
 	width  int
 	height int
 
-	// Commit navigation
+	// Commit navigation (repo-wide)
 	commits     []git.Commit // All recent commits
 	commitIndex int          // -1 for working copy, 0+ for commits
 
 	// Current file selection
 	currentFile string
+
+	// Single-file mode
+	singleFileMode   bool
+	fileCommits      []git.Commit // Commits for current file
+	fileCommitIndex  int          // -1 for working copy, 0+ for file commits
 
 	err error
 }
@@ -43,12 +48,13 @@ func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
 	diffView := NewDiffView(80, 20)
 
 	return Model{
-		sidebar:      sidebar,
-		diffView:     diffView,
-		gitService:   gitService,
-		deltaService: deltaService,
-		focus:        focusSidebar,
-		commitIndex:  -1, // Start at working copy
+		sidebar:         sidebar,
+		diffView:        diffView,
+		gitService:      gitService,
+		deltaService:    deltaService,
+		focus:           focusSidebar,
+		commitIndex:     -1, // Start at working copy
+		fileCommitIndex: -1,
 	}
 }
 
@@ -86,6 +92,10 @@ type diffLoadedMsg struct {
 	content string
 }
 
+type fileCommitsLoadedMsg struct {
+	commits []git.Commit
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -109,28 +119,71 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
+		case "enter":
+			// Enter single-file mode
+			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
+				m.singleFileMode = true
+				m.fileCommitIndex = -1 // Start at working copy
+				m.focus = focusDiffView
+				m.sidebar.SetFocused(false)
+				m.diffView.SetFocused(true)
+				return m, m.loadFileCommits
+			}
 		case "]":
-			// Next (newer) - towards working copy
-			if !m.sidebar.IsFiltering() && m.commitIndex > -1 {
-				m.commitIndex--
-				return m, m.loadFilesForCurrentCommit
+			if !m.sidebar.IsFiltering() {
+				if m.singleFileMode {
+					// Navigate file commits - newer
+					if m.fileCommitIndex > -1 {
+						m.fileCommitIndex--
+						m.updateSingleFileModeDisplay()
+						return m, m.loadDiffForFileCommit
+					}
+				} else {
+					// Navigate repo commits - newer
+					if m.commitIndex > -1 {
+						m.commitIndex--
+						return m, m.loadFilesForCurrentCommit
+					}
+				}
 			}
 		case "[":
-			// Previous (older) - into history
-			if !m.sidebar.IsFiltering() && m.commitIndex < len(m.commits)-1 {
-				m.commitIndex++
-				return m, m.loadFilesForCurrentCommit
+			if !m.sidebar.IsFiltering() {
+				if m.singleFileMode {
+					// Navigate file commits - older
+					if m.fileCommitIndex < len(m.fileCommits)-1 {
+						m.fileCommitIndex++
+						m.updateSingleFileModeDisplay()
+						return m, m.loadDiffForFileCommit
+					}
+				} else {
+					// Navigate repo commits - older
+					if m.commitIndex < len(m.commits)-1 {
+						m.commitIndex++
+						return m, m.loadFilesForCurrentCommit
+					}
+				}
 			}
 		case "esc":
-			// Return to working copy
-			if !m.sidebar.IsFiltering() && m.commitIndex >= 0 {
-				m.commitIndex = -1
-				return m, m.loadFilesForCurrentCommit
+			if !m.sidebar.IsFiltering() {
+				if m.singleFileMode {
+					// Exit single-file mode
+					m.singleFileMode = false
+					m.fileCommitIndex = -1
+					m.focus = focusSidebar
+					m.sidebar.SetFocused(true)
+					m.diffView.SetFocused(false)
+					m.updateRevisionDisplay()
+					return m, m.loadDiffForCurrentFile
+				} else if m.commitIndex >= 0 {
+					// Return to working copy
+					m.commitIndex = -1
+					return m, m.loadFilesForCurrentCommit
+				}
 			}
 		}
 
 		// Route to focused component
-		if m.sidebar.IsFiltering() || m.focus == focusSidebar {
+		if !m.singleFileMode && (m.sidebar.IsFiltering() || m.focus == focusSidebar) {
 			var cmd tea.Cmd
 			prevSelected := m.sidebar.SelectedItem()
 			m.sidebar, cmd = m.sidebar.Update(msg)
@@ -173,6 +226,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.updateRevisionDisplay()
 
+	case fileCommitsLoadedMsg:
+		m.fileCommits = msg.commits
+		m.updateSingleFileModeDisplay()
+
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
 
@@ -200,6 +257,22 @@ func (m *Model) updateRevisionDisplay() {
 		m.sidebar.SetRevision(commit.Hash)
 		m.diffView.SetFileInfo(m.currentFile, m.commitIndex, len(m.commits), commit.Hash)
 	}
+}
+
+func (m *Model) updateSingleFileModeDisplay() {
+	if m.fileCommitIndex < 0 {
+		m.sidebar.SetRevision("FILE: working copy")
+		m.diffView.SetFileInfo(m.currentFile, -1, len(m.fileCommits), "")
+	} else if m.fileCommitIndex < len(m.fileCommits) {
+		commit := m.fileCommits[m.fileCommitIndex]
+		m.sidebar.SetRevision("FILE: " + commit.Hash)
+		m.diffView.SetFileInfo(m.currentFile, m.fileCommitIndex, len(m.fileCommits), commit.Hash)
+	}
+}
+
+func (m *Model) loadFileCommits() tea.Msg {
+	commits, _ := m.gitService.GetFileCommits(m.currentFile)
+	return fileCommitsLoadedMsg{commits: commits}
 }
 
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
@@ -254,6 +327,37 @@ func (m *Model) loadDiffForCurrentFile() tea.Msg {
 	return diffLoadedMsg{content: rendered}
 }
 
+func (m *Model) loadDiffForFileCommit() tea.Msg {
+	if m.currentFile == "" {
+		return diffLoadedMsg{content: ""}
+	}
+
+	var diff string
+	var err error
+
+	if m.fileCommitIndex < 0 {
+		// Working copy diff
+		diff, err = m.gitService.GetDiff(m.currentFile)
+	} else if m.fileCommitIndex < len(m.fileCommits) {
+		// File commit diff
+		commit := m.fileCommits[m.fileCommitIndex]
+		diff, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
+	}
+
+	if err != nil {
+		return ErrorMsg{Err: err}
+	}
+
+	// Render through delta
+	diffWidth := m.width - int(float64(m.width)*0.25) - 6
+	rendered, err := m.deltaService.Render(diff, diffWidth)
+	if err != nil {
+		rendered = diff
+	}
+
+	return diffLoadedMsg{content: rendered}
+}
+
 func (m Model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -263,7 +367,12 @@ func (m Model) View() string {
 		return "Error: " + m.err.Error()
 	}
 
-	help := HelpStyle.Render("[j/k: files | d/u: scroll | [/]: commits | t: filter | tab: pane | esc: working copy | q: quit]")
+	var help string
+	if m.singleFileMode {
+		help = HelpStyle.Render("[d/u: scroll | [/]: file history | esc: exit file mode | q: quit]")
+	} else {
+		help = HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | t: filter | esc: working copy | q: quit]")
+	}
 
 	main := lipgloss.JoinHorizontal(
 		lipgloss.Top,
