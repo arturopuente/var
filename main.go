@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 
 	tea "github.com/charmbracelet/bubbletea"
-	"var/internal/delta"
 	"var/internal/git"
 	"var/internal/ui"
 )
@@ -44,10 +43,9 @@ func main() {
 
 	// Initialize services
 	gitService := git.NewService(absPath)
-	deltaService := delta.NewService()
 
 	// Create and run the program
-	model := ui.NewModel(gitService, deltaService)
+	model := ui.NewModel(gitService)
 	p := tea.NewProgram(model, tea.WithAltScreen())
 
 	if _, err := p.Run(); err != nil {

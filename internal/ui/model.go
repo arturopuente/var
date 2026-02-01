@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"var/internal/delta"
 	"var/internal/git"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -25,10 +24,9 @@ const (
 
 // Model is the root model composing sidebar and diff view
 type Model struct {
-	sidebar      Sidebar
-	diffView     DiffView
-	gitService   *git.Service
-	deltaService *delta.Service
+	sidebar    Sidebar
+	diffView   DiffView
+	gitService *git.Service
 
 	focus  focus
 	width  int
@@ -50,7 +48,7 @@ type Model struct {
 	err error
 }
 
-func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
+func NewModel(gitService *git.Service) Model {
 	sidebar := NewSidebar([]FileItem{}, 40, 20)
 	sidebar.SetFocused(true)
 	sidebar.SetRevision("working copy")
@@ -60,7 +58,6 @@ func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
 		sidebar:         sidebar,
 		diffView:        diffView,
 		gitService:      gitService,
-		deltaService:    deltaService,
 		focus:           focusSidebar,
 		commitIndex:     0, // Start at latest commit
 		fileCommitIndex: 0,
@@ -327,14 +324,7 @@ func (m *Model) loadDiffForCurrentFile() tea.Msg {
 		return diffLoadedMsg{content: "No changes to display"}
 	}
 
-	// Render through delta
-	diffWidth := m.width - int(float64(m.width)*0.20) - 6
-	rendered, err := m.deltaService.Render(diff, diffWidth)
-	if err != nil {
-		rendered = diff
-	}
-
-	return diffLoadedMsg{content: rendered}
+	return diffLoadedMsg{content: diff}
 }
 
 func (m *Model) loadDiffForFileCommit() tea.Msg {
@@ -372,14 +362,7 @@ func (m *Model) loadDiffForFileCommit() tea.Msg {
 		return diffLoadedMsg{content: "No changes to display"}
 	}
 
-	// Render through delta
-	diffWidth := m.width - int(float64(m.width)*0.20) - 6
-	rendered, err := m.deltaService.Render(content, diffWidth)
-	if err != nil {
-		rendered = content
-	}
-
-	return diffLoadedMsg{content: rendered}
+	return diffLoadedMsg{content: content}
 }
 
 func (m Model) View() string {
