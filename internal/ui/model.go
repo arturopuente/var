@@ -17,25 +17,26 @@ const (
 
 // Model is the root model composing sidebar and diff view
 type Model struct {
-	sidebar     Sidebar
-	diffView    DiffView
-	gitService  *git.Service
+	sidebar      Sidebar
+	diffView     DiffView
+	gitService   *git.Service
 	deltaService *delta.Service
 
-	focus       focus
-	width       int
-	height      int
+	focus  focus
+	width  int
+	height int
 
+	// Commit navigation
+	commits     []git.Commit // All recent commits
+	commitIndex int          // -1 for working copy, 0+ for commits
+
+	// Current file selection
 	currentFile string
-	commits     []git.Commit
-	commitIndex int // -1 for working copy
 
-	err         error
+	err error
 }
 
 func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
-	// Initialize with empty items and default dimensions
-	// They'll be resized when WindowSizeMsg arrives
 	sidebar := NewSidebar([]FileItem{}, 40, 20)
 	sidebar.SetFocused(true)
 	sidebar.SetRevision("working copy")
@@ -47,30 +48,42 @@ func NewModel(gitService *git.Service, deltaService *delta.Service) Model {
 		gitService:   gitService,
 		deltaService: deltaService,
 		focus:        focusSidebar,
-		commitIndex:  -1,
+		commitIndex:  -1, // Start at working copy
 	}
 }
 
 func (m Model) Init() tea.Cmd {
-	return m.loadFiles
+	return m.loadInitialData
 }
 
-func (m *Model) loadFiles() tea.Msg {
-	files, err := m.gitService.GetModifiedFiles()
-	if err != nil {
-		return ErrorMsg{Err: err}
-	}
+type initialDataMsg struct {
+	commits []git.Commit
+	files   []FileItem
+}
 
+func (m *Model) loadInitialData() tea.Msg {
+	// Load recent commits
+	commits, _ := m.gitService.GetRecentCommits(100)
+
+	// Load working copy files
+	files, _ := m.gitService.GetModifiedFiles()
 	items := make([]FileItem, len(files))
 	for i, f := range files {
 		items[i] = FileItem{Path: f.Path, Status: f.Status}
 	}
 
-	return filesLoadedMsg{items: items}
+	return initialDataMsg{
+		commits: commits,
+		files:   items,
+	}
 }
 
 type filesLoadedMsg struct {
-	items []FileItem
+	files []FileItem
+}
+
+type diffLoadedMsg struct {
+	content string
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -78,7 +91,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
-		// Global keys
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if !m.sidebar.IsFiltering() {
@@ -98,22 +110,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				return m, nil
 			}
 		case "]":
-			// Next commit (newer)
+			// Next (newer) - towards working copy
 			if !m.sidebar.IsFiltering() && m.commitIndex > -1 {
 				m.commitIndex--
-				return m, m.loadDiffForCurrentCommit
+				return m, m.loadFilesForCurrentCommit
 			}
 		case "[":
-			// Previous commit (older)
+			// Previous (older) - into history
 			if !m.sidebar.IsFiltering() && m.commitIndex < len(m.commits)-1 {
 				m.commitIndex++
-				return m, m.loadDiffForCurrentCommit
+				return m, m.loadFilesForCurrentCommit
 			}
 		case "esc":
+			// Return to working copy
 			if !m.sidebar.IsFiltering() && m.commitIndex >= 0 {
-				// Return to working copy
 				m.commitIndex = -1
-				return m, m.loadDiffForWorkingCopy
+				return m, m.loadFilesForCurrentCommit
 			}
 		}
 
@@ -128,8 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			currSelected := m.sidebar.SelectedItem()
 			if currSelected != nil && (prevSelected == nil || prevSelected.Path != currSelected.Path) {
 				m.currentFile = currSelected.Path
-				m.commitIndex = -1
-				cmds = append(cmds, m.loadDiffAndCommits)
+				cmds = append(cmds, m.loadDiffForCurrentFile)
 			}
 		} else if m.focus == focusDiffView {
 			var cmd tea.Cmd
@@ -142,24 +153,28 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.updateLayout()
 
-	case filesLoadedMsg:
-		m.sidebar.SetItems(msg.items)
-		if len(msg.items) > 0 {
-			m.currentFile = msg.items[0].Path
-			cmds = append(cmds, m.loadDiffAndCommits)
+	case initialDataMsg:
+		m.commits = msg.commits
+		m.sidebar.SetItems(msg.files)
+		if len(msg.files) > 0 {
+			m.currentFile = msg.files[0].Path
+			cmds = append(cmds, m.loadDiffForCurrentFile)
 		}
+		m.updateRevisionDisplay()
+
+	case filesLoadedMsg:
+		m.sidebar.SetItems(msg.files)
+		if len(msg.files) > 0 {
+			m.currentFile = msg.files[0].Path
+			cmds = append(cmds, m.loadDiffForCurrentFile)
+		} else {
+			m.currentFile = ""
+			m.diffView.SetContent("No files changed in this commit")
+		}
+		m.updateRevisionDisplay()
 
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
-		m.diffView.SetFileInfo(msg.path, msg.commitIndex, msg.commitCount, msg.commitHash)
-		if msg.commits != nil {
-			m.commits = msg.commits
-		}
-		if msg.commitHash == "" {
-			m.sidebar.SetRevision("working copy")
-		} else {
-			m.sidebar.SetRevision(msg.commitHash)
-		}
 
 	case ErrorMsg:
 		m.err = msg.Err
@@ -170,31 +185,61 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *Model) updateLayout() {
 	sidebarWidth := int(float64(m.width) * 0.25)
-	diffWidth := m.width - sidebarWidth - 4 // Account for borders
+	diffWidth := m.width - sidebarWidth - 4
 
 	m.sidebar.SetSize(sidebarWidth, m.height-2)
 	m.diffView.SetSize(diffWidth, m.height-2)
 }
 
-type diffLoadedMsg struct {
-	content     string
-	path        string
-	commitIndex int
-	commitCount int
-	commitHash  string
-	commits     []git.Commit
+func (m *Model) updateRevisionDisplay() {
+	if m.commitIndex < 0 {
+		m.sidebar.SetRevision("working copy")
+		m.diffView.SetFileInfo(m.currentFile, -1, len(m.commits), "")
+	} else if m.commitIndex < len(m.commits) {
+		commit := m.commits[m.commitIndex]
+		m.sidebar.SetRevision(commit.Hash)
+		m.diffView.SetFileInfo(m.currentFile, m.commitIndex, len(m.commits), commit.Hash)
+	}
 }
 
-func (m *Model) loadDiffAndCommits() tea.Msg {
-	if m.currentFile == "" {
-		return nil
+func (m *Model) loadFilesForCurrentCommit() tea.Msg {
+	var files []FileItem
+
+	if m.commitIndex < 0 {
+		// Working copy
+		statusFiles, _ := m.gitService.GetModifiedFiles()
+		for _, f := range statusFiles {
+			files = append(files, FileItem{Path: f.Path, Status: f.Status})
+		}
+	} else if m.commitIndex < len(m.commits) {
+		// Specific commit
+		commit := m.commits[m.commitIndex]
+		commitFiles, _ := m.gitService.GetFilesInCommit(commit.Hash)
+		for _, f := range commitFiles {
+			files = append(files, FileItem{Path: f.Path, Status: f.Status})
+		}
 	}
 
-	// Load commits for this file
-	commits, _ := m.gitService.GetFileCommits(m.currentFile)
+	return filesLoadedMsg{files: files}
+}
 
-	// Load working copy diff
-	diff, err := m.gitService.GetDiff(m.currentFile)
+func (m *Model) loadDiffForCurrentFile() tea.Msg {
+	if m.currentFile == "" {
+		return diffLoadedMsg{content: ""}
+	}
+
+	var diff string
+	var err error
+
+	if m.commitIndex < 0 {
+		// Working copy diff
+		diff, err = m.gitService.GetDiff(m.currentFile)
+	} else if m.commitIndex < len(m.commits) {
+		// Commit diff
+		commit := m.commits[m.commitIndex]
+		diff, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
+	}
+
 	if err != nil {
 		return ErrorMsg{Err: err}
 	}
@@ -206,65 +251,7 @@ func (m *Model) loadDiffAndCommits() tea.Msg {
 		rendered = diff
 	}
 
-	return diffLoadedMsg{
-		content:     rendered,
-		path:        m.currentFile,
-		commitIndex: -1,
-		commitCount: len(commits),
-		commitHash:  "",
-		commits:     commits,
-	}
-}
-
-func (m *Model) loadDiffForCurrentCommit() tea.Msg {
-	if m.currentFile == "" || m.commitIndex < 0 || m.commitIndex >= len(m.commits) {
-		return nil
-	}
-
-	commit := m.commits[m.commitIndex]
-	diff, err := m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
-	if err != nil {
-		return ErrorMsg{Err: err}
-	}
-
-	diffWidth := m.width - int(float64(m.width)*0.25) - 6
-	rendered, err := m.deltaService.Render(diff, diffWidth)
-	if err != nil {
-		rendered = diff
-	}
-
-	return diffLoadedMsg{
-		content:     rendered,
-		path:        m.currentFile,
-		commitIndex: m.commitIndex,
-		commitCount: len(m.commits),
-		commitHash:  commit.Hash,
-	}
-}
-
-func (m *Model) loadDiffForWorkingCopy() tea.Msg {
-	if m.currentFile == "" {
-		return nil
-	}
-
-	diff, err := m.gitService.GetDiff(m.currentFile)
-	if err != nil {
-		return ErrorMsg{Err: err}
-	}
-
-	diffWidth := m.width - int(float64(m.width)*0.25) - 6
-	rendered, err := m.deltaService.Render(diff, diffWidth)
-	if err != nil {
-		rendered = diff
-	}
-
-	return diffLoadedMsg{
-		content:     rendered,
-		path:        m.currentFile,
-		commitIndex: -1,
-		commitCount: len(m.commits),
-		commitHash:  "",
-	}
+	return diffLoadedMsg{content: rendered}
 }
 
 func (m Model) View() string {
@@ -276,7 +263,7 @@ func (m Model) View() string {
 		return "Error: " + m.err.Error()
 	}
 
-	help := HelpStyle.Render("[j/k: files | d/u: scroll | [/]: revisions | t: filter | tab: switch pane | esc: working copy | q: quit]")
+	help := HelpStyle.Render("[j/k: files | d/u: scroll | [/]: commits | t: filter | tab: pane | esc: working copy | q: quit]")
 
 	main := lipgloss.JoinHorizontal(
 		lipgloss.Top,

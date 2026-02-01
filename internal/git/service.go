@@ -1,6 +1,7 @@
 package git
 
 import (
+	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -116,6 +117,62 @@ func (s *Service) GetDiffAtCommit(filePath, commitHash string) (string, error) {
 		return "", err
 	}
 	return string(output), nil
+}
+
+// GetRecentCommits returns recent commits for the repository
+func (s *Service) GetRecentCommits(limit int) ([]Commit, error) {
+	cmd := exec.Command("git", "log", "--oneline", "-n", fmt.Sprintf("%d", limit))
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var commits []Commit
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Message: parts[1],
+		})
+	}
+	return commits, nil
+}
+
+// GetFilesInCommit returns files changed in a specific commit
+func (s *Service) GetFilesInCommit(commitHash string) ([]FileStatus, error) {
+	cmd := exec.Command("git", "diff-tree", "--no-commit-id", "--name-status", "-r", commitHash)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var files []FileStatus
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		files = append(files, FileStatus{
+			Status: parts[0],
+			Path:   parts[1],
+		})
+	}
+	return files, nil
 }
 
 // IsGitRepository checks if the path is a git repository
