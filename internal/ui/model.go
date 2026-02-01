@@ -241,7 +241,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) updateLayout() {
-	sidebarWidth := int(float64(m.width) * 0.25)
+	sidebarWidth := int(float64(m.width) * 0.20)
 	diffWidth := m.width - sidebarWidth - 4
 
 	m.sidebar.SetSize(sidebarWidth, m.height-2)
@@ -318,7 +318,7 @@ func (m *Model) loadDiffForCurrentFile() tea.Msg {
 	}
 
 	// Render through delta
-	diffWidth := m.width - int(float64(m.width)*0.25) - 6
+	diffWidth := m.width - int(float64(m.width)*0.20) - 6
 	rendered, err := m.deltaService.Render(diff, diffWidth)
 	if err != nil {
 		rendered = diff
@@ -349,7 +349,7 @@ func (m *Model) loadDiffForFileCommit() tea.Msg {
 	}
 
 	// Render through delta
-	diffWidth := m.width - int(float64(m.width)*0.25) - 6
+	diffWidth := m.width - int(float64(m.width)*0.20) - 6
 	rendered, err := m.deltaService.Render(diff, diffWidth)
 	if err != nil {
 		rendered = diff

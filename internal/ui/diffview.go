@@ -93,12 +93,12 @@ func addLineNumbers(content string) string {
 			oldLine++
 			newLine++
 		} else if stripped[0] == '-' {
-			// Deletion - only old line number
-			result = append(result, fmt.Sprintf("%4d %4s │ %s", oldLine, "", line))
+			// Deletion - red line number
+			result = append(result, fmt.Sprintf("\x1b[31m%4d\x1b[0m %4s │ %s", oldLine, "", line))
 			oldLine++
 		} else if stripped[0] == '+' {
-			// Addition - only new line number
-			result = append(result, fmt.Sprintf("%4s %4d │ %s", "", newLine, line))
+			// Addition - green line number
+			result = append(result, fmt.Sprintf("%4s \x1b[32m%4d\x1b[0m │ %s", "", newLine, line))
 			newLine++
 		} else {
 			// Context line - both line numbers
