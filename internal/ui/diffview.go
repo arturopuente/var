@@ -2,6 +2,8 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
@@ -41,7 +43,72 @@ func (d *DiffView) SetSize(width, height int) {
 }
 
 func (d *DiffView) SetContent(content string) {
-	d.viewport.SetContent(content)
+	d.viewport.SetContent(addLineNumbers(content))
+}
+
+// hunkHeaderRegex matches diff hunk headers like "@@ -10,5 +12,7 @@"
+var hunkHeaderRegex = regexp.MustCompile(`^@@\s+-(\d+)(?:,\d+)?\s+\+(\d+)(?:,\d+)?\s+@@`)
+
+// stripANSI removes ANSI escape codes to determine line type
+func stripANSI(s string) string {
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return ansiRegex.ReplaceAllString(s, "")
+}
+
+// addLineNumbers prepends line numbers to diff content
+func addLineNumbers(content string) string {
+	if content == "" {
+		return content
+	}
+
+	lines := strings.Split(content, "\n")
+	result := make([]string, 0, len(lines))
+
+	var oldLine, newLine int
+	inHunk := false
+
+	for _, line := range lines {
+		stripped := stripANSI(line)
+
+		// Check for hunk header
+		if matches := hunkHeaderRegex.FindStringSubmatch(stripped); matches != nil {
+			fmt.Sscanf(matches[1], "%d", &oldLine)
+			fmt.Sscanf(matches[2], "%d", &newLine)
+			inHunk = true
+			// Hunk header - no line numbers
+			result = append(result, fmt.Sprintf("%4s %4s │ %s", "", "", line))
+			continue
+		}
+
+		if !inHunk {
+			// Header lines (diff --git, index, ---, +++) - no line numbers
+			result = append(result, fmt.Sprintf("%4s %4s │ %s", "", "", line))
+			continue
+		}
+
+		// Determine line type from first character
+		if len(stripped) == 0 {
+			// Empty line in diff context
+			result = append(result, fmt.Sprintf("%4d %4d │ %s", oldLine, newLine, line))
+			oldLine++
+			newLine++
+		} else if stripped[0] == '-' {
+			// Deletion - only old line number
+			result = append(result, fmt.Sprintf("%4d %4s │ %s", oldLine, "", line))
+			oldLine++
+		} else if stripped[0] == '+' {
+			// Addition - only new line number
+			result = append(result, fmt.Sprintf("%4s %4d │ %s", "", newLine, line))
+			newLine++
+		} else {
+			// Context line - both line numbers
+			result = append(result, fmt.Sprintf("%4d %4d │ %s", oldLine, newLine, line))
+			oldLine++
+			newLine++
+		}
+	}
+
+	return strings.Join(result, "\n")
 }
 
 func (d *DiffView) SetFileInfo(path string, commitIndex, commitCount int, commitHash string) {
