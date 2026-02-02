@@ -23,16 +23,16 @@ var (
 			Foreground(lipgloss.Color("4")). // blue like lazygit optionsTextColor
 			Padding(0, 1)
 
-	// Mode badges for help bar
+	// Mode badges for help bar (using hex colors for consistent contrast)
 	ModeBadgeCommits = lipgloss.NewStyle().
-				Background(lipgloss.Color("6")).
-				Foreground(lipgloss.Color("0")).
+				Background(lipgloss.Color("#2d7d9a")).
+				Foreground(lipgloss.Color("#ffffff")).
 				Bold(true).
 				Padding(0, 1)
 
 	ModeBadgeFile = lipgloss.NewStyle().
-			Background(lipgloss.Color("5")).
-			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("#7c4dff")).
+			Foreground(lipgloss.Color("#ffffff")).
 			Bold(true).
 			Padding(0, 1)
 
