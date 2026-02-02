@@ -135,7 +135,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fileCommitIndex = 0 // Start at most recent commit
 				m.focus = focusDiffView
 				m.sidebar.SetFocused(false)
+				m.sidebar.SetFileMode(true)
 				m.diffView.SetFocused(true)
+				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadFileCommits
 			}
 		case "]":
@@ -175,16 +177,19 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "1":
 			if m.singleFileMode {
 				m.viewMode = viewModeDiff
+				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadDiffForFileCommit
 			}
 		case "2":
 			if m.singleFileMode {
 				m.viewMode = viewModeContext
+				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadDiffForFileCommit
 			}
 		case "3":
 			if m.singleFileMode {
 				m.viewMode = viewModeFullFile
+				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadDiffForFileCommit
 			}
 		case "esc":
@@ -196,7 +201,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewMode = viewModeDiff
 					m.focus = focusSidebar
 					m.sidebar.SetFocused(true)
+					m.sidebar.SetFileMode(false)
 					m.diffView.SetFocused(false)
+					m.diffView.SetMode(false, 0)
 					m.updateRevisionDisplay()
 					return m, m.loadDiffForCurrentFile
 				} else if m.commitIndex > 0 {
@@ -376,9 +383,13 @@ func (m Model) View() string {
 
 	var help string
 	if m.singleFileMode {
-		help = HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | esc: exit | q: quit]")
+		badge := ModeBadgeFile.Render("FILE")
+		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | esc: exit | q: quit]")
+		help = badge + " " + helpText
 	} else {
-		help = HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | /: filter | esc: latest | q: quit]")
+		badge := ModeBadgeCommits.Render("COMMITS")
+		helpText := HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | /: filter | esc: latest | q: quit]")
+		help = badge + " " + helpText
 	}
 
 	main := lipgloss.JoinHorizontal(

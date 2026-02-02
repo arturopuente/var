@@ -20,6 +20,8 @@ type DiffView struct {
 	commitIndex int    // Current commit index (-1 for working copy)
 	commitCount int    // Total commits for this file
 	commitHash  string // Current commit hash (empty for working copy)
+	inFileMode  bool   // Whether in single-file mode
+	viewMode    int    // Current view mode (0=diff, 1=context, 2=full)
 }
 
 func NewDiffView(width, height int) DiffView {
@@ -118,6 +120,24 @@ func (d *DiffView) SetFileInfo(path string, commitIndex, commitCount int, commit
 	d.commitHash = commitHash
 }
 
+func (d *DiffView) SetMode(inFileMode bool, viewMode int) {
+	d.inFileMode = inFileMode
+	d.viewMode = viewMode
+}
+
+func (d *DiffView) renderViewTabs() string {
+	tabs := []string{"1:diff", "2:ctx", "3:full"}
+	var parts []string
+	for i, tab := range tabs {
+		if i == d.viewMode {
+			parts = append(parts, ViewTabActive.Render(tab))
+		} else {
+			parts = append(parts, ViewTabInactive.Render(tab))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 func (d *DiffView) SetFocused(focused bool) {
 	d.isFocused = focused
 }
@@ -164,6 +184,12 @@ func (d *DiffView) View() string {
 		header = fmt.Sprintf("%s (%d/%d: %s)", d.filePath, d.commitIndex+1, d.commitCount, d.commitHash)
 	} else if d.filePath != "" {
 		header = fmt.Sprintf("%s (working copy)", d.filePath)
+	}
+
+	// Add view mode tabs when in file mode
+	if d.inFileMode {
+		tabs := d.renderViewTabs()
+		header = header + "   " + tabs
 	}
 
 	// Build footer with scroll percentage

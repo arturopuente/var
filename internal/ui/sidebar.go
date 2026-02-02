@@ -77,11 +77,12 @@ func (d fileItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 
 // Sidebar wraps a bubbles/list for file selection
 type Sidebar struct {
-	list        list.Model
-	width       int
-	height      int
-	isFocused   bool
-	revision    string // "working copy" or commit hash
+	list       list.Model
+	width      int
+	height     int
+	isFocused  bool
+	revision   string // "working copy" or commit hash
+	inFileMode bool   // Whether in single-file mode (dims sidebar)
 }
 
 func NewSidebar(items []FileItem, width, height int) Sidebar {
@@ -125,6 +126,10 @@ func (s *Sidebar) SetFocused(focused bool) {
 	s.isFocused = focused
 }
 
+func (s *Sidebar) SetFileMode(enabled bool) {
+	s.inFileMode = enabled
+}
+
 func (s *Sidebar) IsFocused() bool {
 	return s.isFocused
 }
@@ -163,11 +168,17 @@ func (s *Sidebar) View() string {
 		Height(s.height).
 		BorderStyle(lipgloss.RoundedBorder())
 
+	content := s.list.View()
+
 	if s.isFocused {
 		// lazygit: green + bold for active border
 		style = style.BorderForeground(lipgloss.Color("2")) // green
+	} else if s.inFileMode {
+		// Dim border and content when in file mode
+		style = style.BorderForeground(BorderDimmed)
+		content = lipgloss.NewStyle().Faint(true).Render(content)
 	}
 	// inactive: no BorderForeground = terminal default
 
-	return style.Render(s.list.View())
+	return style.Render(content)
 }
