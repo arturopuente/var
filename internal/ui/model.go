@@ -135,7 +135,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.fileCommitIndex = 0 // Start at most recent commit
 				m.focus = focusDiffView
 				m.sidebar.SetFocused(false)
-				m.sidebar.SetFileMode(true)
 				m.diffView.SetFocused(true)
 				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadFileCommits
@@ -201,7 +200,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					m.viewMode = viewModeDiff
 					m.focus = focusSidebar
 					m.sidebar.SetFocused(true)
-					m.sidebar.SetFileMode(false)
 					m.diffView.SetFocused(false)
 					m.diffView.SetMode(false, 0)
 					m.updateRevisionDisplay()

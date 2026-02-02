@@ -46,7 +46,4 @@ var (
 	ViewTabInactive = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8")).
 			Padding(0, 1)
-
-	// Dimmed border for inactive sidebar
-	BorderDimmed = lipgloss.Color("8")
 )
