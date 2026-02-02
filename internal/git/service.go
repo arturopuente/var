@@ -146,7 +146,13 @@ func (s *Service) GetFileContentAtCommit(filePath, commitHash string) (string, e
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
-		return "", err
+		// File might be deleted in this commit, try parent commit
+		cmd = exec.Command("git", "show", fmt.Sprintf("%s^:%s", commitHash, filePath))
+		cmd.Dir = s.repoPath
+		output, err = cmd.Output()
+		if err != nil {
+			return "", err
+		}
 	}
 	// Add line numbers manually
 	lines := strings.Split(string(output), "\n")
