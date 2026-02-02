@@ -113,6 +113,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if !m.sidebar.IsFiltering() {
+				if m.singleFileMode {
+					// Exit single-file mode
+					m.singleFileMode = false
+					m.fileCommitIndex = 0
+					m.viewMode = viewModeDiff
+					m.focus = focusSidebar
+					m.sidebar.SetFocused(true)
+					m.diffView.SetFocused(false)
+					m.diffView.SetMode(false, 0)
+					m.updateRevisionDisplay()
+					return m, m.loadDiffForCurrentFile
+				}
 				return m, tea.Quit
 			}
 		case "tab":
@@ -128,7 +140,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 				return m, nil
 			}
-		case "enter":
+		case " ":
 			// Enter single-file mode
 			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
 				m.singleFileMode = true
@@ -382,11 +394,11 @@ func (m Model) View() string {
 	var help string
 	if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | esc: exit | q: quit]")
+		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | q: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | enter: file mode | [/]: commits | /: filter | esc: latest | q: quit]")
+		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | q: quit]")
 		help = badge + " " + helpText
 	}
 

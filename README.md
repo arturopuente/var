@@ -18,10 +18,9 @@ go build -o var .
 
 ### Commit Browsing Mode
 - `j/k` - Navigate files
-- `Enter` - Enter single-file mode
+- `Space` - Enter single-file mode
 - `[/]` - Navigate commits (older/newer)
 - `/` - Filter files
-- `Esc` - Return to latest commit
 - `Tab` - Switch focus between sidebar and diff view
 - `q` - Quit
 
@@ -31,5 +30,4 @@ go build -o var .
 - `3` - Full file view
 - `[/]` - Navigate file history (older/newer)
 - `d/u` - Scroll half page down/up
-- `Esc` - Exit to commit browsing mode
-- `q` - Quit
+- `q` - Back to commit browsing mode
