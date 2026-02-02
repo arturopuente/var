@@ -38,8 +38,8 @@ var (
 
 	// View mode tabs for diff header
 	ViewTabActive = lipgloss.NewStyle().
-			Background(lipgloss.Color("4")).
-			Foreground(lipgloss.Color("15")).
+			Background(lipgloss.Color("#7c4dff")).
+			Foreground(lipgloss.Color("#ffffff")).
 			Bold(true).
 			Padding(0, 1)
 
