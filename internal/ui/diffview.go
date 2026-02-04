@@ -51,13 +51,13 @@ func (d *DiffView) SetContent(content string) {
 	d.updateContent()
 }
 
-// stripCommitHeader removes the commit description from git show output,
-// keeping only the diff starting from the first "diff --git" line.
-func stripCommitHeader(content string) string {
+// stripDiffHeader removes the commit description and diff metadata from
+// git show output, keeping only from the first hunk header (@@ ...) onwards.
+func stripDiffHeader(content string) string {
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
 		stripped := stripANSI(line)
-		if strings.HasPrefix(stripped, "diff --git ") {
+		if strings.HasPrefix(stripped, "@@") {
 			return strings.Join(lines[i:], "\n")
 		}
 	}
@@ -67,7 +67,7 @@ func stripCommitHeader(content string) string {
 func (d *DiffView) updateContent() {
 	content := d.rawContent
 	if !d.showDescription {
-		content = stripCommitHeader(content)
+		content = stripDiffHeader(content)
 	}
 	d.viewport.SetContent(addLineNumbers(content))
 }
