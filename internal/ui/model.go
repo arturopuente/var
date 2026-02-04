@@ -203,6 +203,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadDiffForFileCommit
 			}
+		case "z":
+			if !m.sidebar.IsFiltering() {
+				m.diffView.ToggleDescription()
+				return m, nil
+			}
 		case "esc":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
@@ -394,11 +399,11 @@ func (m Model) View() string {
 	var help string
 	if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | q: back]")
+		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | z: desc | q: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | q: quit]")
+		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | z: desc | q: quit]")
 		help = badge + " " + helpText
 	}
 

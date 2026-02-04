@@ -12,16 +12,18 @@ import (
 
 // DiffView wraps a bubbles/viewport for displaying diffs
 type DiffView struct {
-	viewport    viewport.Model
-	width       int
-	height      int
-	isFocused   bool
-	filePath    string
-	commitIndex int    // Current commit index (-1 for working copy)
-	commitCount int    // Total commits for this file
-	commitHash  string // Current commit hash (empty for working copy)
-	inFileMode  bool   // Whether in single-file mode
-	viewMode    int    // Current view mode (0=diff, 1=context, 2=full)
+	viewport        viewport.Model
+	width           int
+	height          int
+	isFocused       bool
+	filePath        string
+	commitIndex     int    // Current commit index (-1 for working copy)
+	commitCount     int    // Total commits for this file
+	commitHash      string // Current commit hash (empty for working copy)
+	inFileMode      bool   // Whether in single-file mode
+	viewMode        int    // Current view mode (0=diff, 1=context, 2=full)
+	rawContent      string // Raw diff content before line numbers
+	showDescription bool   // Whether to show commit description (default false)
 }
 
 func NewDiffView(width, height int) DiffView {
@@ -45,7 +47,34 @@ func (d *DiffView) SetSize(width, height int) {
 }
 
 func (d *DiffView) SetContent(content string) {
+	d.rawContent = content
+	d.updateContent()
+}
+
+// stripCommitHeader removes the commit description from git show output,
+// keeping only the diff starting from the first "diff --git" line.
+func stripCommitHeader(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		stripped := stripANSI(line)
+		if strings.HasPrefix(stripped, "diff --git ") {
+			return strings.Join(lines[i:], "\n")
+		}
+	}
+	return content
+}
+
+func (d *DiffView) updateContent() {
+	content := d.rawContent
+	if !d.showDescription {
+		content = stripCommitHeader(content)
+	}
 	d.viewport.SetContent(addLineNumbers(content))
+}
+
+func (d *DiffView) ToggleDescription() {
+	d.showDescription = !d.showDescription
+	d.updateContent()
 }
 
 // hunkHeaderRegex matches diff hunk headers like "@@ -10,5 +12,7 @@"
