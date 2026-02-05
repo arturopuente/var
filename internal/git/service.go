@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
 
@@ -220,6 +221,40 @@ func (s *Service) GetFilesInCommit(commitHash string) ([]FileStatus, error) {
 		})
 	}
 	return files, nil
+}
+
+// FileStats holds additions and deletions for a file in a commit
+type FileStats struct {
+	Additions int
+	Deletions int
+}
+
+// GetNumstatForCommit returns per-file addition/deletion counts for a commit
+func (s *Service) GetNumstatForCommit(commitHash string) (map[string]FileStats, error) {
+	cmd := exec.Command("git", "diff-tree", "--numstat", "--no-commit-id", "-r", commitHash)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	stats := make(map[string]FileStats)
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Fields(line)
+		if len(parts) < 3 {
+			continue
+		}
+		// Binary files show "-" for additions/deletions
+		adds, _ := strconv.Atoi(parts[0])
+		dels, _ := strconv.Atoi(parts[1])
+		path := parts[2]
+		stats[path] = FileStats{Additions: adds, Deletions: dels}
+	}
+	return stats, nil
 }
 
 // IsGitRepository checks if the path is a git repository

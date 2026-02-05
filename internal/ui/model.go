@@ -81,9 +81,17 @@ func (m *Model) loadInitialData() tea.Msg {
 	var items []FileItem
 	if len(commits) > 0 {
 		files, _ := m.gitService.GetFilesInCommit(commits[0].Hash)
+		stats, _ := m.gitService.GetNumstatForCommit(commits[0].Hash)
 		items = make([]FileItem, len(files))
 		for i, f := range files {
-			items[i] = FileItem{Path: f.Path, Status: f.Status}
+			item := FileItem{Path: f.Path, Status: f.Status}
+			if stats != nil {
+				if s, ok := stats[f.Path]; ok {
+					item.Additions = s.Additions
+					item.Deletions = s.Deletions
+				}
+			}
+			items[i] = item
 		}
 	}
 
@@ -322,8 +330,16 @@ func (m *Model) loadFilesForCurrentCommit() tea.Msg {
 	if m.commitIndex < len(m.commits) {
 		commit := m.commits[m.commitIndex]
 		commitFiles, _ := m.gitService.GetFilesInCommit(commit.Hash)
+		stats, _ := m.gitService.GetNumstatForCommit(commit.Hash)
 		for _, f := range commitFiles {
-			files = append(files, FileItem{Path: f.Path, Status: f.Status})
+			item := FileItem{Path: f.Path, Status: f.Status}
+			if stats != nil {
+				if s, ok := stats[f.Path]; ok {
+					item.Additions = s.Additions
+					item.Deletions = s.Deletions
+				}
+			}
+			files = append(files, item)
 		}
 	}
 
@@ -399,11 +415,11 @@ func (m Model) View() string {
 	var help string
 	if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | [/]: history | z: desc | q: back]")
+		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | n/N: hunks | [/]: history | z: desc | q: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | z: desc | q: quit]")
+		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | n/N: hunks | z: desc | q: quit]")
 		help = badge + " " + helpText
 	}
 

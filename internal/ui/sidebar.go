@@ -11,8 +11,10 @@ import (
 
 // FileItem represents a file in the sidebar
 type FileItem struct {
-	Path   string
-	Status string
+	Path      string
+	Status    string
+	Additions int
+	Deletions int
 }
 
 func (i FileItem) FilterValue() string { return i.Path }
@@ -41,8 +43,18 @@ func (d fileItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 	isSelected := index == m.Index()
 	width := m.Width()
 
-	// Truncate path to fit: width - 2 (indent) - 3 (status) - 1 (space) - 2 (margin)
-	maxPathLen := width - 8
+	// Format stats string
+	var stats string
+	if i.Additions > 0 || i.Deletions > 0 {
+		stats = fmt.Sprintf("+%d -%d", i.Additions, i.Deletions)
+	}
+
+	// Truncate path to fit: width - 2 (indent) - 3 (status) - 1 (space) - 2 (margin) - stats - 1 (space before stats)
+	statsWidth := 0
+	if stats != "" {
+		statsWidth = len(stats) + 1
+	}
+	maxPathLen := width - 8 - statsWidth
 	path := truncatePath(i.Path, maxPathLen)
 
 	// Determine status color
@@ -64,14 +76,40 @@ func (d fileItemDelegate) Render(w io.Writer, m list.Model, index int, listItem 
 		fg := lipgloss.Color("#ffffff")
 		statusStyle := lipgloss.NewStyle().Width(3).Foreground(fg).Background(bg).Bold(true)
 		pathStyle := lipgloss.NewStyle().Foreground(fg).Background(bg).Bold(true)
+		statsStyle := lipgloss.NewStyle().Foreground(fg).Background(bg)
 
-		line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), pathStyle.Render(path))
-		fmt.Fprint(w, lipgloss.NewStyle().Width(width).Background(bg).Render(line))
+		pathRendered := pathStyle.Render(path)
+		if stats != "" {
+			// Pad path to push stats to the right
+			padLen := maxPathLen - len(path)
+			if padLen < 0 {
+				padLen = 0
+			}
+			padding := lipgloss.NewStyle().Background(bg).Render(fmt.Sprintf("%*s", padLen, ""))
+			line := fmt.Sprintf("  %s %s%s %s", statusStyle.Render(i.Status), pathRendered, padding, statsStyle.Render(stats))
+			fmt.Fprint(w, lipgloss.NewStyle().Width(width).Background(bg).Render(line))
+		} else {
+			line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), pathRendered)
+			fmt.Fprint(w, lipgloss.NewStyle().Width(width).Background(bg).Render(line))
+		}
 	} else {
 		// Unselected: normal styling
 		statusStyle := lipgloss.NewStyle().Width(3).Foreground(statusColor)
-		line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), path)
-		fmt.Fprint(w, line)
+		if stats != "" {
+			padLen := maxPathLen - len(path)
+			if padLen < 0 {
+				padLen = 0
+			}
+			addStr := fmt.Sprintf("+%d", i.Additions)
+			delStr := fmt.Sprintf("-%d", i.Deletions)
+			greenStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+			redStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("1"))
+			line := fmt.Sprintf("  %s %s%*s %s %s", statusStyle.Render(i.Status), path, padLen, "", greenStyle.Render(addStr), redStyle.Render(delStr))
+			fmt.Fprint(w, line)
+		} else {
+			line := fmt.Sprintf("  %s %s", statusStyle.Render(i.Status), path)
+			fmt.Fprint(w, line)
+		}
 	}
 }
 
