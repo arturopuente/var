@@ -203,7 +203,7 @@ func (s *Sidebar) View() string {
 
 	if s.isFocused {
 		// lazygit: green + bold for active border
-		style = style.BorderForeground(lipgloss.Color("2")) // green
+		style = style.BorderForeground(lipgloss.Color("2")).Bold(true) // green + bold
 	}
 	// inactive: no BorderForeground = terminal default
 

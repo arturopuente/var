@@ -474,7 +474,7 @@ func injectBorderLabel(rendered string, label string, focused bool) string {
 
 	newTop := string(runes)
 	if focused {
-		newTop = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(newTop)
+		newTop = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Bold(true).Render(newTop)
 	}
 
 	lines[0] = newTop

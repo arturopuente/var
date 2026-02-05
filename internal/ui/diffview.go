@@ -423,7 +423,7 @@ func (d *DiffView) View() string {
 
 	if d.isFocused {
 		// lazygit: green for active border
-		style = style.BorderForeground(lipgloss.Color("2"))
+		style = style.BorderForeground(lipgloss.Color("2")).Bold(true)
 	}
 	// inactive: no BorderForeground = terminal default
 
