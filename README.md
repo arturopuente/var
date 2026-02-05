@@ -21,6 +21,7 @@ go build -o var .
 - `Space` - Enter single-file mode
 - `[/]` - Navigate commits (older/newer)
 - `/` - Filter files
+- `n/N` - Jump to next/previous hunk
 - `Tab` - Switch focus between sidebar and diff view
 - `q` - Quit
 
@@ -30,4 +31,5 @@ go build -o var .
 - `3` - Full file view
 - `[/]` - Navigate file history (older/newer)
 - `d/u` - Scroll half page down/up
+- `n/N` - Jump to next/previous hunk
 - `q` - Back to commit browsing mode
