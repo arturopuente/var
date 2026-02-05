@@ -313,7 +313,7 @@ func (d *DiffView) SetMode(inFileMode bool, viewMode int) {
 }
 
 func (d *DiffView) renderViewTabs() string {
-	tabs := []string{"1:diff", "2:ctx", "3:full"}
+	tabs := []string{"diff", "ctx", "full"}
 	var parts []string
 	for i, tab := range tabs {
 		if i == d.viewMode {

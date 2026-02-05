@@ -16,20 +16,22 @@ go build -o var .
 
 ## Keyboard Shortcuts
 
-### Commit Browsing Mode
+### Mode Switching
+- `1` - Switch to commit list mode
+- `2` - Switch to single-file mode
+
+### Commit List Mode (`1`)
 - `j/k` - Navigate files
-- `Space` - Enter single-file mode
+- `Space` or `2` - Enter single-file mode
 - `[/]` - Navigate commits (older/newer)
 - `/` - Filter files
 - `n/N` - Jump to next/previous hunk
 - `Tab` - Switch focus between sidebar and diff view
 - `q` - Quit
 
-### Single-File Mode
-- `1` - Diff view (3 lines context)
-- `2` - Context view (10 lines context)
-- `3` - Full file view
+### Single-File Mode (`2`)
+- `c` - Cycle view: diff → context (+10) → full file
 - `[/]` - Navigate file history (older/newer)
 - `d/u` - Scroll half page down/up
 - `n/N` - Jump to next/previous hunk
-- `q` - Back to commit browsing mode
+- `1` or `q` - Back to commit list mode

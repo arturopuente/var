@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strings"
 	"var/internal/git"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -194,20 +195,33 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		case "1":
-			if m.singleFileMode {
+			// Switch to commit list mode
+			if !m.sidebar.IsFiltering() && m.singleFileMode {
+				m.singleFileMode = false
+				m.fileCommitIndex = 0
 				m.viewMode = viewModeDiff
-				m.diffView.SetMode(true, int(m.viewMode))
-				return m, m.loadDiffForFileCommit
+				m.focus = focusSidebar
+				m.sidebar.SetFocused(true)
+				m.diffView.SetFocused(false)
+				m.diffView.SetMode(false, 0)
+				m.updateRevisionDisplay()
+				return m, m.loadDiffForCurrentFile
 			}
 		case "2":
-			if m.singleFileMode {
-				m.viewMode = viewModeContext
+			// Switch to single-file mode
+			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
+				m.singleFileMode = true
+				m.fileCommitIndex = 0
+				m.focus = focusDiffView
+				m.sidebar.SetFocused(false)
+				m.diffView.SetFocused(true)
 				m.diffView.SetMode(true, int(m.viewMode))
-				return m, m.loadDiffForFileCommit
+				return m, m.loadFileCommits
 			}
-		case "3":
+		case "c":
+			// Cycle diff modes in single-file mode
 			if m.singleFileMode {
-				m.viewMode = viewModeFullFile
+				m.viewMode = (m.viewMode + 1) % 3
 				m.diffView.SetMode(true, int(m.viewMode))
 				return m, m.loadDiffForFileCommit
 			}
@@ -299,8 +313,8 @@ func (m *Model) updateLayout() {
 	sidebarWidth := int(float64(m.width) * 0.20)
 	diffWidth := m.width - sidebarWidth - 4
 
-	m.sidebar.SetSize(sidebarWidth, m.height-2)
-	m.diffView.SetSize(diffWidth, m.height-2)
+	m.sidebar.SetSize(sidebarWidth, m.height-3)
+	m.diffView.SetSize(diffWidth, m.height-3)
 }
 
 func (m *Model) updateRevisionDisplay() {
@@ -415,18 +429,21 @@ func (m Model) View() string {
 	var help string
 	if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[1: diff | 2: +context | 3: full | d/u: scroll | n/N: hunks | [/]: history | z: desc | q: back]")
+		helpText := HelpStyle.Render("[c: cycle view | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | space: file mode | [/]: commits | /: filter | n/N: hunks | z: desc | q: quit]")
+		helpText := HelpStyle.Render("[j/k: files | 2/space: file mode | [/]: commits | /: filter | n/N: hunks | z: desc | q: quit]")
 		help = badge + " " + helpText
 	}
 
+	sidebarRendered := injectBorderLabel(m.sidebar.View(), "1", m.focus == focusSidebar)
+	diffRendered := injectBorderLabel(m.diffView.View(), "2", m.focus == focusDiffView)
+
 	main := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		m.sidebar.View(),
-		m.diffView.View(),
+		sidebarRendered,
+		diffRendered,
 	)
 
 	return lipgloss.JoinVertical(
@@ -434,4 +451,32 @@ func (m Model) View() string {
 		main,
 		help,
 	)
+}
+
+// injectBorderLabel replaces part of the top border with a centered label like [1]
+func injectBorderLabel(rendered string, label string, focused bool) string {
+	lines := strings.Split(rendered, "\n")
+	if len(lines) == 0 {
+		return rendered
+	}
+
+	clean := stripANSI(lines[0])
+	runes := []rune(clean)
+	labelRunes := []rune("[" + label + "]")
+
+	start := 2 // after ╭─
+	for i, r := range labelRunes {
+		pos := start + i
+		if pos > 0 && pos < len(runes)-1 {
+			runes[pos] = r
+		}
+	}
+
+	newTop := string(runes)
+	if focused {
+		newTop = lipgloss.NewStyle().Foreground(lipgloss.Color("2")).Render(newTop)
+	}
+
+	lines[0] = newTop
+	return strings.Join(lines, "\n")
 }
