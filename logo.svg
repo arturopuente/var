@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="280" height="230" viewBox="0 0 280 230">
+  <!-- Monitor frame -->
+  <rect x="20" y="10" width="240" height="160" rx="12" fill="#003366"/>
+
+  <!-- Screen inner -->
+  <rect x="36" y="26" width="208" height="128" rx="6" fill="#ffffff"/>
+
+  <!-- VAR text -->
+  <text x="132" y="90" font-family="Berkeley Mono, Monaco, monospace" font-size="68" font-weight="900" fill="#003366" text-anchor="middle" dominant-baseline="central" letter-spacing="6">VAR</text>
+
+  <!-- Diff markers vertically centered on right -->
+  <text x="224" y="75" font-family="Berkeley Mono, Monaco, monospace" font-size="36" font-weight="900" fill="#4caf50" text-anchor="middle" dominant-baseline="central">+</text>
+  <text x="224" y="105" font-family="Berkeley Mono, Monaco, monospace" font-size="36" font-weight="900" fill="#f44336" text-anchor="middle" dominant-baseline="central">-</text>
+
+  <!-- Monitor stand -->
+  <rect x="118" y="170" width="44" height="22" rx="2" fill="#003366"/>
+
+  <!-- Monitor base -->
+  <rect x="90" y="190" width="100" height="10" rx="5" fill="#003366"/>
+</svg>

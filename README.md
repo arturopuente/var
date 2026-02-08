@@ -1,5 +1,7 @@
 # var
 
+<img src="logo.png" alt="var" width="140">
+
 A terminal UI for git archeology. Browse commits, trace file history, search for changes, and read blame — without leaving the terminal.
 
 ![demo](demo.gif)
