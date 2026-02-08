@@ -287,7 +287,7 @@ func (s *Service) GetFileReflog(filePath string, limit int) ([]Commit, error) {
 
 // GetBlame returns blame output for a file at a specific commit
 func (s *Service) GetBlame(filePath, commitHash string) (string, error) {
-	cmd := exec.Command("git", "blame", "--color-always", commitHash, "--", filePath)
+	cmd := exec.Command("git", "--no-pager", "blame", "--color-always", commitHash, "--", filePath)
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
@@ -326,7 +326,7 @@ func (s *Service) GetPickaxeCommits(filePath, searchTerm string) ([]Commit, erro
 
 // GetFunctionLogCommits returns commits that modified a specific function
 func (s *Service) GetFunctionLogCommits(filePath, funcName string) ([]Commit, error) {
-	cmd := exec.Command("git", "log", "--oneline", fmt.Sprintf("-L:%s:%s", funcName, filePath))
+	cmd := exec.Command("git", "--no-pager", "log", "--oneline", fmt.Sprintf("-L:%s:%s", funcName, filePath))
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
@@ -368,7 +368,7 @@ func (s *Service) GetFunctionLogCommits(filePath, funcName string) ([]Commit, er
 
 // GetFunctionDiff returns the diff of a specific function at a specific commit
 func (s *Service) GetFunctionDiff(filePath, funcName, commitHash string) (string, error) {
-	cmd := exec.Command("git", "log", "--color=always", "-1", fmt.Sprintf("-L:%s:%s", funcName, filePath), commitHash)
+	cmd := exec.Command("git", "--no-pager", "log", "--color=always", "-1", fmt.Sprintf("-L:%s:%s", funcName, filePath), commitHash)
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
