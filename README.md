@@ -2,6 +2,8 @@
 
 A terminal UI for git archeology. Browse commits, trace file history, search for changes, and read blame — without leaving the terminal.
 
+![demo](demo.gif)
+
 ## Install
 
 ```bash
