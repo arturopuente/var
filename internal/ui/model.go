@@ -565,7 +565,7 @@ func (m *Model) loadContentForCommit(file, hash string, dm displayMode, sm sourc
 	}
 
 	if err != nil {
-		return ErrorMsg{Err: err}
+		return diffLoadedMsg{content: fmt.Sprintf("Error: %v", err)}
 	}
 	if content == "" {
 		return diffLoadedMsg{content: "No changes to display"}
