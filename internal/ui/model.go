@@ -528,15 +528,13 @@ func (m *Model) loadContentForCurrentSource() tea.Cmd {
 
 	file := m.currentFile
 	dm := m.displayMode
-	sm := m.sourceMode
-	funcName := m.funcLogName
 
 	return func() tea.Msg {
-		return m.loadContentForCommit(file, hash, dm, sm, funcName)
+		return m.loadContentForCommit(file, hash, dm)
 	}
 }
 
-func (m *Model) loadContentForCommit(file, hash string, dm displayMode, sm sourceMode, funcName string) tea.Msg {
+func (m *Model) loadContentForCommit(file, hash string, dm displayMode) tea.Msg {
 	var content string
 	var err error
 
@@ -544,24 +542,11 @@ func (m *Model) loadContentForCommit(file, hash string, dm displayMode, sm sourc
 	case displayBlame:
 		content, err = m.gitService.GetBlame(file, hash)
 	case displayFull:
-		if sm == sourceFuncLog {
-			// For function log + full, show the function diff (has full function context)
-			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
-		} else {
-			content, err = m.gitService.GetFileContentAtCommit(file, hash)
-		}
+		content, err = m.gitService.GetFileContentAtCommit(file, hash)
 	case displayContext:
-		if sm == sourceFuncLog {
-			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
-		} else {
-			content, err = m.gitService.GetDiffAtCommitWithContext(file, hash, 10)
-		}
+		content, err = m.gitService.GetDiffAtCommitWithContext(file, hash, 10)
 	default: // displayDiff
-		if sm == sourceFuncLog {
-			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
-		} else {
-			content, err = m.gitService.GetDiffAtCommit(file, hash)
-		}
+		content, err = m.gitService.GetDiffAtCommit(file, hash)
 	}
 
 	if err != nil {

@@ -366,17 +366,6 @@ func (s *Service) GetFunctionLogCommits(filePath, funcName string) ([]Commit, er
 	return commits, nil
 }
 
-// GetFunctionDiff returns the diff of a specific function at a specific commit
-func (s *Service) GetFunctionDiff(filePath, funcName, commitHash string) (string, error) {
-	cmd := exec.Command("git", "--no-pager", "log", "-p", "-1", fmt.Sprintf("-L:%s:%s", funcName, filePath), commitHash)
-	cmd.Dir = s.repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return string(output), nil
-}
-
 // IsGitRepository checks if the path is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
