@@ -1,42 +1,57 @@
 # var
 
-A TUI for browsing git commit history and file changes.
+A terminal UI for git archeology. Browse commits, trace file history, search for changes, and read blame — without leaving the terminal.
 
-## Build
+## Install
 
 ```bash
 go build -o var .
 ```
 
-## Run
+## Usage
 
 ```bash
-./var
+./var          # open in current repo
 ```
 
-## Keyboard Shortcuts
+`var` opens in **commit list mode**, showing files changed in each commit. Press `Space` to drill into a file's full history in **single-file mode**.
 
-### Mode Switching
-- `1` - Switch to commit list mode
-- `2` - Switch to single-file mode
+## Features
 
-### Commit List Mode (`1`)
-- `j/k` - Navigate files
-- `Space` or `2` - Enter single-file mode
-- `[/]` - Navigate commits (older/newer)
-- `/` - Filter files
-- `n/N` - Jump to next/previous hunk
-- `Tab` - Switch focus between sidebar and diff view
-- `q` - Quit
+- **Four display modes** — diff, context (+10 lines), full file, and blame. Cycle with `c`.
+- **Pickaxe search** — press `s` to find commits that added or removed a specific string.
+- **Reflog traversal** — press `r` to navigate reflog entries instead of commit history.
+- **Word-level highlighting** — inline diffs show exactly what changed within each line.
+- **Hunk jumping** — `n`/`N` to jump between diff hunks.
+- **File filtering** — `/` to fuzzy-filter the file list.
 
-### Single-File Mode (`2`)
-- `c` - Cycle display: diff → context (+10) → full file → blame
-- `r` - Toggle reflog source (navigate reflog entries instead of file commits)
-- `s` - Toggle pickaxe search (find commits that added/removed a string)
-- `[/]` - Navigate history (older/newer) — works with all sources
-- `d/u` - Scroll half page down/up
-- `n/N` - Jump to next/previous hunk
-- `Esc` - Deactivate current source, or exit single-file mode
-- `1` or `q` - Back to commit list mode
+Display modes and commit sources are orthogonal — any display works with any source.
 
-Display modes and commit sources are orthogonal — any display (diff/ctx/full/blame) works with any source (commits/reflog/pickaxe).
+## Keys
+
+### Commit List Mode
+
+| Key | Action |
+|-----|--------|
+| `j/k` | Navigate files |
+| `[/]` | Older/newer commit |
+| `Space` | Enter single-file mode |
+| `/` | Filter files |
+| `n/N` | Next/previous hunk |
+| `Tab` | Switch focus |
+| `z` | Toggle commit description |
+| `q` | Quit |
+
+### Single-File Mode
+
+| Key | Action |
+|-----|--------|
+| `c` | Cycle display: diff / ctx / full / blame |
+| `r` | Toggle reflog source |
+| `s` | Pickaxe search |
+| `[/]` | Older/newer in current source |
+| `d/u` | Half page down/up |
+| `n/N` | Next/previous hunk |
+| `z` | Toggle commit description |
+| `Esc` | Deactivate source / exit mode |
+| `1` | Back to commit list |
