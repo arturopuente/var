@@ -21,6 +21,7 @@ const (
 	viewModeDiff       viewMode = iota // Default diff (3 lines context)
 	viewModeContext                    // Diff with 10 lines context
 	viewModeFullFile                   // Full file view
+	viewModeReflog                     // Navigate reflog entries
 )
 
 // Model is the root model composing sidebar and diff view
@@ -45,6 +46,10 @@ type Model struct {
 	fileCommits      []git.Commit // Commits for current file
 	fileCommitIndex  int          // -1 for working copy, 0+ for file commits
 	viewMode         viewMode     // Current view mode in single-file mode
+
+	// Reflog navigation
+	reflogEntries []git.Commit
+	reflogIndex   int
 
 	err error
 }
@@ -114,6 +119,10 @@ type fileCommitsLoadedMsg struct {
 	commits []git.Commit
 }
 
+type reflogLoadedMsg struct {
+	entries []git.Commit
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -163,11 +172,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "]":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					// Navigate file commits - newer
-					if m.fileCommitIndex > 0 {
-						m.fileCommitIndex--
-						m.updateSingleFileModeDisplay()
-						return m, m.loadDiffForFileCommit
+					if m.viewMode == viewModeReflog {
+						// Navigate reflog - newer
+						if m.reflogIndex > 0 {
+							m.reflogIndex--
+							m.updateReflogDisplay()
+							return m, m.loadDiffForReflogEntry
+						}
+					} else {
+						// Navigate file commits - newer
+						if m.fileCommitIndex > 0 {
+							m.fileCommitIndex--
+							m.updateSingleFileModeDisplay()
+							return m, m.loadDiffForFileCommit
+						}
 					}
 				} else {
 					// Navigate repo commits - newer
@@ -180,11 +198,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "[":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					// Navigate file commits - older
-					if m.fileCommitIndex < len(m.fileCommits)-1 {
-						m.fileCommitIndex++
-						m.updateSingleFileModeDisplay()
-						return m, m.loadDiffForFileCommit
+					if m.viewMode == viewModeReflog {
+						// Navigate reflog - older
+						if m.reflogIndex < len(m.reflogEntries)-1 {
+							m.reflogIndex++
+							m.updateReflogDisplay()
+							return m, m.loadDiffForReflogEntry
+						}
+					} else {
+						// Navigate file commits - older
+						if m.fileCommitIndex < len(m.fileCommits)-1 {
+							m.fileCommitIndex++
+							m.updateSingleFileModeDisplay()
+							return m, m.loadDiffForFileCommit
+						}
 					}
 				} else {
 					// Navigate repo commits - older
@@ -221,8 +248,18 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "c":
 			// Cycle diff modes in single-file mode
 			if m.singleFileMode {
-				m.viewMode = (m.viewMode + 1) % 3
+				prev := m.viewMode
+				m.viewMode = (m.viewMode + 1) % 4
 				m.diffView.SetMode(true, int(m.viewMode))
+				if m.viewMode == viewModeReflog {
+					m.reflogIndex = 0
+					return m, m.loadReflog
+				}
+				if prev == viewModeReflog {
+					// Leaving reflog mode, restore file commit navigation
+					m.updateSingleFileModeDisplay()
+					return m, m.loadDiffForFileCommit
+				}
 				return m, m.loadDiffForFileCommit
 			}
 		case "z":
@@ -299,6 +336,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.fileCommits = msg.commits
 		m.updateSingleFileModeDisplay()
 
+	case reflogLoadedMsg:
+		m.reflogEntries = msg.entries
+		m.updateReflogDisplay()
+		cmds = append(cmds, m.loadDiffForReflogEntry)
+
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
 
@@ -336,6 +378,35 @@ func (m *Model) updateSingleFileModeDisplay() {
 func (m *Model) loadFileCommits() tea.Msg {
 	commits, _ := m.gitService.GetFileCommits(m.currentFile)
 	return fileCommitsLoadedMsg{commits: commits}
+}
+
+func (m *Model) loadReflog() tea.Msg {
+	entries, _ := m.gitService.GetFileReflog(m.currentFile, 100)
+	return reflogLoadedMsg{entries: entries}
+}
+
+func (m *Model) updateReflogDisplay() {
+	if m.reflogIndex < len(m.reflogEntries) {
+		entry := m.reflogEntries[m.reflogIndex]
+		m.sidebar.SetRevision("REFLOG: " + entry.Hash)
+		m.diffView.SetFileInfo(m.currentFile, m.reflogIndex, len(m.reflogEntries), entry.Hash)
+	}
+}
+
+func (m *Model) loadDiffForReflogEntry() tea.Msg {
+	if m.currentFile == "" || m.reflogIndex >= len(m.reflogEntries) {
+		return diffLoadedMsg{content: ""}
+	}
+
+	entry := m.reflogEntries[m.reflogIndex]
+	diff, err := m.gitService.GetDiffAtCommit(m.currentFile, entry.Hash)
+	if err != nil {
+		return ErrorMsg{Err: err}
+	}
+	if diff == "" {
+		return diffLoadedMsg{content: "No changes to this file at this reflog entry"}
+	}
+	return diffLoadedMsg{content: diff}
 }
 
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
@@ -429,7 +500,7 @@ func (m Model) View() string {
 	var help string
 	if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[c: cycle view | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
+		helpText := HelpStyle.Render("[c: cycle view (diff/ctx/full/reflog) | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")

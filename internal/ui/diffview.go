@@ -313,7 +313,7 @@ func (d *DiffView) SetMode(inFileMode bool, viewMode int) {
 }
 
 func (d *DiffView) renderViewTabs() string {
-	tabs := []string{"diff", "ctx", "full"}
+	tabs := []string{"diff", "ctx", "full", "reflog"}
 	var parts []string
 	for i, tab := range tabs {
 		if i == d.viewMode {
@@ -423,7 +423,7 @@ func (d *DiffView) View() string {
 
 	if d.isFocused {
 		// lazygit: green for active border
-		style = style.BorderForeground(lipgloss.Color("2")).Bold(true)
+		style = style.BorderForeground(lipgloss.Color("2"))
 	}
 	// inactive: no BorderForeground = terminal default
 

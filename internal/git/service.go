@@ -257,6 +257,34 @@ func (s *Service) GetNumstatForCommit(commitHash string) (map[string]FileStats, 
 	return stats, nil
 }
 
+// GetFileReflog returns reflog entries where the given file was changed
+func (s *Service) GetFileReflog(filePath string, limit int) ([]Commit, error) {
+	cmd := exec.Command("git", "log", "-g", "--oneline", "-n", fmt.Sprintf("%d", limit), "--", filePath)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var commits []Commit
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Message: parts[1],
+		})
+	}
+	return commits, nil
+}
+
 // IsGitRepository checks if the path is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")

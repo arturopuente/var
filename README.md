@@ -30,8 +30,8 @@ go build -o var .
 - `q` - Quit
 
 ### Single-File Mode (`2`)
-- `c` - Cycle view: diff → context (+10) → full file
-- `[/]` - Navigate file history (older/newer)
+- `c` - Cycle view: diff → context (+10) → full file → reflog
+- `[/]` - Navigate file history or reflog entries (older/newer)
 - `d/u` - Scroll half page down/up
 - `n/N` - Jump to next/previous hunk
 - `1` or `q` - Back to commit list mode
