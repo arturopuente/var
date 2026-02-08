@@ -287,7 +287,7 @@ func (s *Service) GetFileReflog(filePath string, limit int) ([]Commit, error) {
 
 // GetBlame returns blame output for a file at a specific commit
 func (s *Service) GetBlame(filePath, commitHash string) (string, error) {
-	cmd := exec.Command("git", "--no-pager", "blame", "--color-always", commitHash, "--", filePath)
+	cmd := exec.Command("git", "--no-pager", "blame", commitHash, "--", filePath)
 	cmd.Dir = s.repoPath
 	output, err := cmd.Output()
 	if err != nil {
