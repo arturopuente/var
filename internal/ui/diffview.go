@@ -21,10 +21,11 @@ type DiffView struct {
 	commitCount     int    // Total commits for this file
 	commitHash      string // Current commit hash (empty for working copy)
 	inFileMode      bool   // Whether in single-file mode
-	viewMode        int    // Current view mode (0=diff, 1=context, 2=full)
+	viewMode        int    // Current view mode (0=diff, 1=context, 2=full, 3=blame)
 	rawContent      string // Raw diff content before line numbers
 	showDescription bool   // Whether to show commit description (default false)
 	hunkPositions   []int  // Line positions of @@ hunk headers in rendered content
+	sourceIndicator string // Source mode indicator (e.g., "REFLOG", "S:\"term\"", "L:func")
 }
 
 func NewDiffView(width, height int) DiffView {
@@ -67,6 +68,12 @@ func stripDiffHeader(content string) string {
 
 func (d *DiffView) updateContent() {
 	content := d.rawContent
+	if d.viewMode == 3 {
+		// Blame mode: content already has its own formatting
+		d.hunkPositions = nil
+		d.viewport.SetContent(content)
+		return
+	}
 	if !d.showDescription {
 		content = stripDiffHeader(content)
 	}
@@ -313,7 +320,7 @@ func (d *DiffView) SetMode(inFileMode bool, viewMode int) {
 }
 
 func (d *DiffView) renderViewTabs() string {
-	tabs := []string{"diff", "ctx", "full", "reflog"}
+	tabs := []string{"diff", "ctx", "full", "blame"}
 	var parts []string
 	for i, tab := range tabs {
 		if i == d.viewMode {
@@ -323,6 +330,10 @@ func (d *DiffView) renderViewTabs() string {
 		}
 	}
 	return strings.Join(parts, " ")
+}
+
+func (d *DiffView) SetSourceIndicator(indicator string) {
+	d.sourceIndicator = indicator
 }
 
 func (d *DiffView) SetFocused(focused bool) {
@@ -399,8 +410,11 @@ func (d *DiffView) View() string {
 		header = fmt.Sprintf("%s (working copy)", d.filePath)
 	}
 
-	// Add view mode tabs when in file mode
+	// Add view mode tabs and source indicator when in file mode
 	if d.inFileMode {
+		if d.sourceIndicator != "" {
+			header = header + "  " + SourceBadge.Render(d.sourceIndicator)
+		}
 		tabs := d.renderViewTabs()
 		header = header + "   " + tabs
 	}

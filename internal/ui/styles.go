@@ -46,4 +46,11 @@ var (
 	ViewTabInactive = lipgloss.NewStyle().
 			Foreground(lipgloss.Color("8")).
 			Padding(0, 1)
+
+	// Source mode badge for header (e.g., REFLOG, S:"term", L:func)
+	SourceBadge = lipgloss.NewStyle().
+			Background(lipgloss.Color("#e65100")).
+			Foreground(lipgloss.Color("#ffffff")).
+			Bold(true).
+			Padding(0, 1)
 )

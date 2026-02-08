@@ -1,9 +1,11 @@
 package ui
 
 import (
+	"fmt"
 	"strings"
 	"var/internal/git"
 
+	"github.com/charmbracelet/bubbles/textinput"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -15,13 +17,22 @@ const (
 	focusDiffView
 )
 
-type viewMode int
+type displayMode int
 
 const (
-	viewModeDiff       viewMode = iota // Default diff (3 lines context)
-	viewModeContext                    // Diff with 10 lines context
-	viewModeFullFile                   // Full file view
-	viewModeReflog                     // Navigate reflog entries
+	displayDiff    displayMode = iota // Default diff (3 lines context)
+	displayContext                    // Diff with 10 lines context
+	displayFull                      // Full file view
+	displayBlame                     // Blame annotations
+)
+
+type sourceMode int
+
+const (
+	sourceCommits sourceMode = iota // git log --follow (default)
+	sourceReflog                    // git log -g
+	sourcePickaxe                   // git log -S
+	sourceFuncLog                   // git log -L
 )
 
 // Model is the root model composing sidebar and diff view
@@ -42,14 +53,23 @@ type Model struct {
 	currentFile string
 
 	// Single-file mode
-	singleFileMode   bool
-	fileCommits      []git.Commit // Commits for current file
-	fileCommitIndex  int          // -1 for working copy, 0+ for file commits
-	viewMode         viewMode     // Current view mode in single-file mode
+	singleFileMode  bool
+	fileCommits     []git.Commit // Commits for current file
+	fileCommitIndex int          // -1 for working copy, 0+ for file commits
+	displayMode     displayMode  // Current display format
+	sourceMode      sourceMode   // Current commit source
 
-	// Reflog navigation
+	// Source-specific state
 	reflogEntries []git.Commit
 	reflogIndex   int
+	sourceCommits []git.Commit // Commits from pickaxe/funclog
+	sourceIndex   int
+	pickaxeTerm   string // Active search term for pickaxe
+	funcLogName   string // Active function name for -L
+
+	// Text input for pickaxe/funclog
+	textInput     textinput.Model
+	textInputMode string // "pickaxe", "funclog", or ""
 
 	err error
 }
@@ -60,6 +80,9 @@ func NewModel(gitService *git.Service) Model {
 	sidebar.SetRevision("working copy")
 	diffView := NewDiffView(80, 20)
 
+	ti := textinput.New()
+	ti.CharLimit = 128
+
 	return Model{
 		sidebar:         sidebar,
 		diffView:        diffView,
@@ -67,6 +90,7 @@ func NewModel(gitService *git.Service) Model {
 		focus:           focusSidebar,
 		commitIndex:     0, // Start at latest commit
 		fileCommitIndex: 0,
+		textInput:       ti,
 	}
 }
 
@@ -123,24 +147,58 @@ type reflogLoadedMsg struct {
 	entries []git.Commit
 }
 
+type sourceCommitsLoadedMsg struct {
+	commits []git.Commit
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
 	case tea.KeyMsg:
+		// Handle text input mode first
+		if m.textInputMode != "" {
+			switch msg.String() {
+			case "enter":
+				value := m.textInput.Value()
+				if value != "" {
+					mode := m.textInputMode
+					m.textInputMode = ""
+					m.textInput.Blur()
+					if mode == "pickaxe" {
+						m.pickaxeTerm = value
+						m.sourceMode = sourcePickaxe
+						m.sourceIndex = 0
+						m.updateSourceIndicator()
+						return m, m.loadPickaxeCommits
+					} else if mode == "funclog" {
+						m.funcLogName = value
+						m.sourceMode = sourceFuncLog
+						m.sourceIndex = 0
+						m.updateSourceIndicator()
+						return m, m.loadFuncLogCommits
+					}
+				}
+				m.textInputMode = ""
+				m.textInput.Blur()
+				return m, nil
+			case "esc":
+				m.textInputMode = ""
+				m.textInput.Blur()
+				return m, nil
+			default:
+				var cmd tea.Cmd
+				m.textInput, cmd = m.textInput.Update(msg)
+				return m, cmd
+			}
+		}
+
 		switch msg.String() {
 		case "q", "ctrl+c":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
 					// Exit single-file mode
-					m.singleFileMode = false
-					m.fileCommitIndex = 0
-					m.viewMode = viewModeDiff
-					m.focus = focusSidebar
-					m.sidebar.SetFocused(true)
-					m.diffView.SetFocused(false)
-					m.diffView.SetMode(false, 0)
-					m.updateRevisionDisplay()
+					m.exitSingleFileMode()
 					return m, m.loadDiffForCurrentFile
 				}
 				return m, tea.Quit
@@ -162,76 +220,40 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Enter single-file mode
 			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
 				m.singleFileMode = true
-				m.fileCommitIndex = 0 // Start at most recent commit
+				m.fileCommitIndex = 0
 				m.focus = focusDiffView
 				m.sidebar.SetFocused(false)
 				m.diffView.SetFocused(true)
-				m.diffView.SetMode(true, int(m.viewMode))
+				m.diffView.SetMode(true, int(m.displayMode))
+				m.updateSourceIndicator()
 				return m, m.loadFileCommits
 			}
 		case "]":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					if m.viewMode == viewModeReflog {
-						// Navigate reflog - newer
-						if m.reflogIndex > 0 {
-							m.reflogIndex--
-							m.updateReflogDisplay()
-							return m, m.loadDiffForReflogEntry
-						}
-					} else {
-						// Navigate file commits - newer
-						if m.fileCommitIndex > 0 {
-							m.fileCommitIndex--
-							m.updateSingleFileModeDisplay()
-							return m, m.loadDiffForFileCommit
-						}
-					}
-				} else {
-					// Navigate repo commits - newer
-					if m.commitIndex > 0 {
-						m.commitIndex--
-						return m, m.loadFilesForCurrentCommit
-					}
+					return m, m.navigateNewer()
+				}
+				// Navigate repo commits - newer
+				if m.commitIndex > 0 {
+					m.commitIndex--
+					return m, m.loadFilesForCurrentCommit
 				}
 			}
 		case "[":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					if m.viewMode == viewModeReflog {
-						// Navigate reflog - older
-						if m.reflogIndex < len(m.reflogEntries)-1 {
-							m.reflogIndex++
-							m.updateReflogDisplay()
-							return m, m.loadDiffForReflogEntry
-						}
-					} else {
-						// Navigate file commits - older
-						if m.fileCommitIndex < len(m.fileCommits)-1 {
-							m.fileCommitIndex++
-							m.updateSingleFileModeDisplay()
-							return m, m.loadDiffForFileCommit
-						}
-					}
-				} else {
-					// Navigate repo commits - older
-					if m.commitIndex < len(m.commits)-1 {
-						m.commitIndex++
-						return m, m.loadFilesForCurrentCommit
-					}
+					return m, m.navigateOlder()
+				}
+				// Navigate repo commits - older
+				if m.commitIndex < len(m.commits)-1 {
+					m.commitIndex++
+					return m, m.loadFilesForCurrentCommit
 				}
 			}
 		case "1":
 			// Switch to commit list mode
 			if !m.sidebar.IsFiltering() && m.singleFileMode {
-				m.singleFileMode = false
-				m.fileCommitIndex = 0
-				m.viewMode = viewModeDiff
-				m.focus = focusSidebar
-				m.sidebar.SetFocused(true)
-				m.diffView.SetFocused(false)
-				m.diffView.SetMode(false, 0)
-				m.updateRevisionDisplay()
+				m.exitSingleFileMode()
 				return m, m.loadDiffForCurrentFile
 			}
 		case "2":
@@ -242,25 +264,66 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.focus = focusDiffView
 				m.sidebar.SetFocused(false)
 				m.diffView.SetFocused(true)
-				m.diffView.SetMode(true, int(m.viewMode))
+				m.diffView.SetMode(true, int(m.displayMode))
+				m.updateSourceIndicator()
 				return m, m.loadFileCommits
 			}
 		case "c":
-			// Cycle diff modes in single-file mode
+			// Cycle display modes in single-file mode
 			if m.singleFileMode {
-				prev := m.viewMode
-				m.viewMode = (m.viewMode + 1) % 4
-				m.diffView.SetMode(true, int(m.viewMode))
-				if m.viewMode == viewModeReflog {
-					m.reflogIndex = 0
-					return m, m.loadReflog
-				}
-				if prev == viewModeReflog {
-					// Leaving reflog mode, restore file commit navigation
+				m.displayMode = (m.displayMode + 1) % 4
+				m.diffView.SetMode(true, int(m.displayMode))
+				return m, m.loadContentForCurrentSource()
+			}
+		case "r":
+			// Toggle reflog source
+			if m.singleFileMode {
+				if m.sourceMode == sourceReflog {
+					m.sourceMode = sourceCommits
+					m.updateSourceIndicator()
 					m.updateSingleFileModeDisplay()
-					return m, m.loadDiffForFileCommit
+					return m, m.loadContentForCurrentSource()
 				}
-				return m, m.loadDiffForFileCommit
+				m.sourceMode = sourceReflog
+				m.reflogIndex = 0
+				m.updateSourceIndicator()
+				return m, m.loadReflog
+			}
+		case "s":
+			// Toggle pickaxe source
+			if m.singleFileMode {
+				if m.sourceMode == sourcePickaxe {
+					// Deactivate pickaxe
+					m.sourceMode = sourceCommits
+					m.pickaxeTerm = ""
+					m.updateSourceIndicator()
+					m.updateSingleFileModeDisplay()
+					return m, m.loadContentForCurrentSource()
+				}
+				// Activate text input for search term
+				m.textInput.SetValue("")
+				m.textInput.Placeholder = "search term"
+				m.textInput.Focus()
+				m.textInputMode = "pickaxe"
+				return m, textinput.Blink
+			}
+		case "f":
+			// Toggle function log source
+			if m.singleFileMode {
+				if m.sourceMode == sourceFuncLog {
+					// Deactivate function log
+					m.sourceMode = sourceCommits
+					m.funcLogName = ""
+					m.updateSourceIndicator()
+					m.updateSingleFileModeDisplay()
+					return m, m.loadContentForCurrentSource()
+				}
+				// Activate text input for function name
+				m.textInput.SetValue("")
+				m.textInput.Placeholder = "function name"
+				m.textInput.Focus()
+				m.textInputMode = "funclog"
+				return m, textinput.Blink
 			}
 		case "z":
 			if !m.sidebar.IsFiltering() {
@@ -270,15 +333,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "esc":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
+					// If a source is active, deactivate it first
+					if m.sourceMode != sourceCommits {
+						m.sourceMode = sourceCommits
+						m.pickaxeTerm = ""
+						m.funcLogName = ""
+						m.updateSourceIndicator()
+						m.updateSingleFileModeDisplay()
+						return m, m.loadContentForCurrentSource()
+					}
 					// Exit single-file mode
-					m.singleFileMode = false
-					m.fileCommitIndex = 0
-					m.viewMode = viewModeDiff
-					m.focus = focusSidebar
-					m.sidebar.SetFocused(true)
-					m.diffView.SetFocused(false)
-					m.diffView.SetMode(false, 0)
-					m.updateRevisionDisplay()
+					m.exitSingleFileMode()
 					return m, m.loadDiffForCurrentFile
 				} else if m.commitIndex > 0 {
 					// Return to latest commit
@@ -335,11 +400,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case fileCommitsLoadedMsg:
 		m.fileCommits = msg.commits
 		m.updateSingleFileModeDisplay()
+		cmds = append(cmds, m.loadContentForCurrentSource())
 
 	case reflogLoadedMsg:
 		m.reflogEntries = msg.entries
 		m.updateReflogDisplay()
-		cmds = append(cmds, m.loadDiffForReflogEntry)
+		cmds = append(cmds, m.loadContentForCurrentSource())
+
+	case sourceCommitsLoadedMsg:
+		m.sourceCommits = msg.commits
+		m.updateSourceDisplay()
+		cmds = append(cmds, m.loadContentForCurrentSource())
 
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
@@ -349,6 +420,157 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, tea.Batch(cmds...)
+}
+
+func (m *Model) exitSingleFileMode() {
+	m.singleFileMode = false
+	m.fileCommitIndex = 0
+	m.displayMode = displayDiff
+	m.sourceMode = sourceCommits
+	m.pickaxeTerm = ""
+	m.funcLogName = ""
+	m.focus = focusSidebar
+	m.sidebar.SetFocused(true)
+	m.diffView.SetFocused(false)
+	m.diffView.SetMode(false, 0)
+	m.diffView.SetSourceIndicator("")
+	m.updateRevisionDisplay()
+}
+
+func (m *Model) updateSourceIndicator() {
+	switch m.sourceMode {
+	case sourceReflog:
+		m.diffView.SetSourceIndicator("REFLOG")
+	case sourcePickaxe:
+		m.diffView.SetSourceIndicator(fmt.Sprintf("S:\"%s\"", m.pickaxeTerm))
+	case sourceFuncLog:
+		m.diffView.SetSourceIndicator(fmt.Sprintf("L:%s", m.funcLogName))
+	default:
+		m.diffView.SetSourceIndicator("")
+	}
+}
+
+// navigateNewer moves to a newer commit in the current source
+func (m *Model) navigateNewer() tea.Cmd {
+	switch m.sourceMode {
+	case sourceReflog:
+		if m.reflogIndex > 0 {
+			m.reflogIndex--
+			m.updateReflogDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	case sourcePickaxe, sourceFuncLog:
+		if m.sourceIndex > 0 {
+			m.sourceIndex--
+			m.updateSourceDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	default:
+		if m.fileCommitIndex > 0 {
+			m.fileCommitIndex--
+			m.updateSingleFileModeDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	}
+	return nil
+}
+
+// navigateOlder moves to an older commit in the current source
+func (m *Model) navigateOlder() tea.Cmd {
+	switch m.sourceMode {
+	case sourceReflog:
+		if m.reflogIndex < len(m.reflogEntries)-1 {
+			m.reflogIndex++
+			m.updateReflogDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	case sourcePickaxe, sourceFuncLog:
+		if m.sourceIndex < len(m.sourceCommits)-1 {
+			m.sourceIndex++
+			m.updateSourceDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	default:
+		if m.fileCommitIndex < len(m.fileCommits)-1 {
+			m.fileCommitIndex++
+			m.updateSingleFileModeDisplay()
+			return m.loadContentForCurrentSource()
+		}
+	}
+	return nil
+}
+
+// currentCommitForSource returns the commit hash and commit for the current source/index
+func (m *Model) currentCommitForSource() (string, bool) {
+	switch m.sourceMode {
+	case sourceReflog:
+		if m.reflogIndex < len(m.reflogEntries) {
+			return m.reflogEntries[m.reflogIndex].Hash, true
+		}
+	case sourcePickaxe, sourceFuncLog:
+		if m.sourceIndex < len(m.sourceCommits) {
+			return m.sourceCommits[m.sourceIndex].Hash, true
+		}
+	default:
+		if m.fileCommitIndex < len(m.fileCommits) {
+			return m.fileCommits[m.fileCommitIndex].Hash, true
+		}
+	}
+	return "", false
+}
+
+// loadContentForCurrentSource returns the appropriate loader cmd for the current display+source combo
+func (m *Model) loadContentForCurrentSource() tea.Cmd {
+	hash, ok := m.currentCommitForSource()
+	if !ok || m.currentFile == "" {
+		return func() tea.Msg { return diffLoadedMsg{content: ""} }
+	}
+
+	file := m.currentFile
+	dm := m.displayMode
+	sm := m.sourceMode
+	funcName := m.funcLogName
+
+	return func() tea.Msg {
+		return m.loadContentForCommit(file, hash, dm, sm, funcName)
+	}
+}
+
+func (m *Model) loadContentForCommit(file, hash string, dm displayMode, sm sourceMode, funcName string) tea.Msg {
+	var content string
+	var err error
+
+	switch dm {
+	case displayBlame:
+		content, err = m.gitService.GetBlame(file, hash)
+	case displayFull:
+		if sm == sourceFuncLog {
+			// For function log + full, show the function diff (has full function context)
+			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
+		} else {
+			content, err = m.gitService.GetFileContentAtCommit(file, hash)
+		}
+	case displayContext:
+		if sm == sourceFuncLog {
+			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
+		} else {
+			content, err = m.gitService.GetDiffAtCommitWithContext(file, hash, 10)
+		}
+	default: // displayDiff
+		if sm == sourceFuncLog {
+			content, err = m.gitService.GetFunctionDiff(file, funcName, hash)
+		} else {
+			content, err = m.gitService.GetDiffAtCommit(file, hash)
+		}
+	}
+
+	if err != nil {
+		return ErrorMsg{Err: err}
+	}
+	if content == "" {
+		return diffLoadedMsg{content: "No changes to display"}
+	}
+	return diffLoadedMsg{content: content}
 }
 
 func (m *Model) updateLayout() {
@@ -375,6 +597,29 @@ func (m *Model) updateSingleFileModeDisplay() {
 	}
 }
 
+func (m *Model) updateReflogDisplay() {
+	if m.reflogIndex < len(m.reflogEntries) {
+		entry := m.reflogEntries[m.reflogIndex]
+		m.sidebar.SetRevision("REFLOG: " + entry.Hash)
+		m.diffView.SetFileInfo(m.currentFile, m.reflogIndex, len(m.reflogEntries), entry.Hash)
+	}
+}
+
+func (m *Model) updateSourceDisplay() {
+	if m.sourceIndex < len(m.sourceCommits) {
+		commit := m.sourceCommits[m.sourceIndex]
+		var prefix string
+		switch m.sourceMode {
+		case sourcePickaxe:
+			prefix = fmt.Sprintf("S:\"%s\": ", m.pickaxeTerm)
+		case sourceFuncLog:
+			prefix = fmt.Sprintf("L:%s: ", m.funcLogName)
+		}
+		m.sidebar.SetRevision(prefix + commit.Hash)
+		m.diffView.SetFileInfo(m.currentFile, m.sourceIndex, len(m.sourceCommits), commit.Hash)
+	}
+}
+
 func (m *Model) loadFileCommits() tea.Msg {
 	commits, _ := m.gitService.GetFileCommits(m.currentFile)
 	return fileCommitsLoadedMsg{commits: commits}
@@ -385,28 +630,14 @@ func (m *Model) loadReflog() tea.Msg {
 	return reflogLoadedMsg{entries: entries}
 }
 
-func (m *Model) updateReflogDisplay() {
-	if m.reflogIndex < len(m.reflogEntries) {
-		entry := m.reflogEntries[m.reflogIndex]
-		m.sidebar.SetRevision("REFLOG: " + entry.Hash)
-		m.diffView.SetFileInfo(m.currentFile, m.reflogIndex, len(m.reflogEntries), entry.Hash)
-	}
+func (m *Model) loadPickaxeCommits() tea.Msg {
+	commits, _ := m.gitService.GetPickaxeCommits(m.currentFile, m.pickaxeTerm)
+	return sourceCommitsLoadedMsg{commits: commits}
 }
 
-func (m *Model) loadDiffForReflogEntry() tea.Msg {
-	if m.currentFile == "" || m.reflogIndex >= len(m.reflogEntries) {
-		return diffLoadedMsg{content: ""}
-	}
-
-	entry := m.reflogEntries[m.reflogIndex]
-	diff, err := m.gitService.GetDiffAtCommit(m.currentFile, entry.Hash)
-	if err != nil {
-		return ErrorMsg{Err: err}
-	}
-	if diff == "" {
-		return diffLoadedMsg{content: "No changes to this file at this reflog entry"}
-	}
-	return diffLoadedMsg{content: diff}
+func (m *Model) loadFuncLogCommits() tea.Msg {
+	commits, _ := m.gitService.GetFunctionLogCommits(m.currentFile, m.funcLogName)
+	return sourceCommitsLoadedMsg{commits: commits}
 }
 
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
@@ -450,44 +681,6 @@ func (m *Model) loadDiffForCurrentFile() tea.Msg {
 	return diffLoadedMsg{content: diff}
 }
 
-func (m *Model) loadDiffForFileCommit() tea.Msg {
-	if m.currentFile == "" || m.fileCommitIndex >= len(m.fileCommits) {
-		return diffLoadedMsg{content: ""}
-	}
-
-	commit := m.fileCommits[m.fileCommitIndex]
-	var content string
-	var err error
-
-	switch m.viewMode {
-	case viewModeFullFile:
-		// Full file view
-		content, err = m.gitService.GetFileContentAtCommit(m.currentFile, commit.Hash)
-		if err != nil {
-			return ErrorMsg{Err: err}
-		}
-		return diffLoadedMsg{content: content}
-
-	case viewModeContext:
-		// Diff with 10 lines of context
-		content, err = m.gitService.GetDiffAtCommitWithContext(m.currentFile, commit.Hash, 10)
-
-	default:
-		// Default diff (3 lines context)
-		content, err = m.gitService.GetDiffAtCommit(m.currentFile, commit.Hash)
-	}
-
-	if err != nil {
-		return ErrorMsg{Err: err}
-	}
-
-	if content == "" {
-		return diffLoadedMsg{content: "No changes to display"}
-	}
-
-	return diffLoadedMsg{content: content}
-}
-
 func (m Model) View() string {
 	if m.width == 0 {
 		return "Loading..."
@@ -498,9 +691,19 @@ func (m Model) View() string {
 	}
 
 	var help string
-	if m.singleFileMode {
+	if m.textInputMode != "" {
+		var label string
+		if m.textInputMode == "pickaxe" {
+			label = "Search: "
+		} else {
+			label = "Function: "
+		}
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[c: cycle view (diff/ctx/full/reflog) | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
+		inputView := lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render(label) + m.textInput.View()
+		help = badge + " " + inputView
+	} else if m.singleFileMode {
+		badge := ModeBadgeFile.Render("FILE")
+		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | f: func | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")

@@ -285,6 +285,98 @@ func (s *Service) GetFileReflog(filePath string, limit int) ([]Commit, error) {
 	return commits, nil
 }
 
+// GetBlame returns blame output for a file at a specific commit
+func (s *Service) GetBlame(filePath, commitHash string) (string, error) {
+	cmd := exec.Command("git", "blame", "--color-always", commitHash, "--", filePath)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
+// GetPickaxeCommits returns commits where the given search term was added or removed
+func (s *Service) GetPickaxeCommits(filePath, searchTerm string) ([]Commit, error) {
+	cmd := exec.Command("git", "log", "--oneline", "-S", searchTerm, "--", filePath)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var commits []Commit
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Message: parts[1],
+		})
+	}
+	return commits, nil
+}
+
+// GetFunctionLogCommits returns commits that modified a specific function
+func (s *Service) GetFunctionLogCommits(filePath, funcName string) ([]Commit, error) {
+	cmd := exec.Command("git", "log", "--oneline", fmt.Sprintf("-L:%s:%s", funcName, filePath))
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	// git log -L output interleaves commit lines with diff content
+	// Commit lines from --oneline look like: "abc1234 message"
+	// Diff lines start with diff/---/+++/@@/+/-/space or are empty
+	var commits []Commit
+	lines := strings.Split(string(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// Skip diff content lines
+		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "---") ||
+			strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "@@") ||
+			strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") ||
+			strings.HasPrefix(line, " ") {
+			continue
+		}
+		parts := strings.SplitN(line, " ", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		// Deduplicate — git log -L can repeat commit hashes
+		if len(commits) > 0 && commits[len(commits)-1].Hash == parts[0] {
+			continue
+		}
+		commits = append(commits, Commit{
+			Hash:    parts[0],
+			Message: parts[1],
+		})
+	}
+	return commits, nil
+}
+
+// GetFunctionDiff returns the diff of a specific function at a specific commit
+func (s *Service) GetFunctionDiff(filePath, funcName, commitHash string) (string, error) {
+	cmd := exec.Command("git", "log", "--color=always", "-1", fmt.Sprintf("-L:%s:%s", funcName, filePath), commitHash)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return "", err
+	}
+	return string(output), nil
+}
+
 // IsGitRepository checks if the path is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
