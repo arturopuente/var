@@ -149,6 +149,7 @@ type reflogLoadedMsg struct {
 
 type sourceCommitsLoadedMsg struct {
 	commits []git.Commit
+	err     error
 }
 
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -408,9 +409,22 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, m.loadContentForCurrentSource())
 
 	case sourceCommitsLoadedMsg:
-		m.sourceCommits = msg.commits
-		m.updateSourceDisplay()
-		cmds = append(cmds, m.loadContentForCurrentSource())
+		if msg.err != nil || len(msg.commits) == 0 {
+			errMsg := "No commits found"
+			if msg.err != nil {
+				errMsg = fmt.Sprintf("Error: %v", msg.err)
+			}
+			m.sourceMode = sourceCommits
+			m.pickaxeTerm = ""
+			m.funcLogName = ""
+			m.updateSourceIndicator()
+			m.updateSingleFileModeDisplay()
+			m.diffView.SetContent(errMsg)
+		} else {
+			m.sourceCommits = msg.commits
+			m.updateSourceDisplay()
+			cmds = append(cmds, m.loadContentForCurrentSource())
+		}
 
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
@@ -616,13 +630,13 @@ func (m *Model) loadReflog() tea.Msg {
 }
 
 func (m *Model) loadPickaxeCommits() tea.Msg {
-	commits, _ := m.gitService.GetPickaxeCommits(m.currentFile, m.pickaxeTerm)
-	return sourceCommitsLoadedMsg{commits: commits}
+	commits, err := m.gitService.GetPickaxeCommits(m.currentFile, m.pickaxeTerm)
+	return sourceCommitsLoadedMsg{commits: commits, err: err}
 }
 
 func (m *Model) loadFuncLogCommits() tea.Msg {
-	commits, _ := m.gitService.GetFunctionLogCommits(m.currentFile, m.funcLogName)
-	return sourceCommitsLoadedMsg{commits: commits}
+	commits, err := m.gitService.GetFunctionLogCommits(m.currentFile, m.funcLogName)
+	return sourceCommitsLoadedMsg{commits: commits, err: err}
 }
 
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
