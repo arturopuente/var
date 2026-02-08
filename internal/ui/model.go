@@ -32,7 +32,6 @@ const (
 	sourceCommits sourceMode = iota // git log --follow (default)
 	sourceReflog                    // git log -g
 	sourcePickaxe                   // git log -S
-	sourceFuncLog                   // git log -L
 )
 
 // Model is the root model composing sidebar and diff view
@@ -62,14 +61,13 @@ type Model struct {
 	// Source-specific state
 	reflogEntries []git.Commit
 	reflogIndex   int
-	sourceCommits []git.Commit // Commits from pickaxe/funclog
+	sourceCommits []git.Commit // Commits from pickaxe
 	sourceIndex   int
 	pickaxeTerm   string // Active search term for pickaxe
-	funcLogName   string // Active function name for -L
 
-	// Text input for pickaxe/funclog
+	// Text input for pickaxe
 	textInput     textinput.Model
-	textInputMode string // "pickaxe", "funclog", or ""
+	textInputMode string // "pickaxe" or ""
 
 	err error
 }
@@ -172,12 +170,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 						m.sourceIndex = 0
 						m.updateSourceIndicator()
 						return m, m.loadPickaxeCommits
-					} else if mode == "funclog" {
-						m.funcLogName = value
-						m.sourceMode = sourceFuncLog
-						m.sourceIndex = 0
-						m.updateSourceIndicator()
-						return m, m.loadFuncLogCommits
 					}
 				}
 				m.textInputMode = ""
@@ -308,24 +300,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.textInputMode = "pickaxe"
 				return m, textinput.Blink
 			}
-		case "f":
-			// Toggle function log source
-			if m.singleFileMode {
-				if m.sourceMode == sourceFuncLog {
-					// Deactivate function log
-					m.sourceMode = sourceCommits
-					m.funcLogName = ""
-					m.updateSourceIndicator()
-					m.updateSingleFileModeDisplay()
-					return m, m.loadContentForCurrentSource()
-				}
-				// Activate text input for function name
-				m.textInput.SetValue("")
-				m.textInput.Placeholder = "function name"
-				m.textInput.Focus()
-				m.textInputMode = "funclog"
-				return m, textinput.Blink
-			}
 		case "z":
 			if !m.sidebar.IsFiltering() {
 				m.diffView.ToggleDescription()
@@ -338,7 +312,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 					if m.sourceMode != sourceCommits {
 						m.sourceMode = sourceCommits
 						m.pickaxeTerm = ""
-						m.funcLogName = ""
 						m.updateSourceIndicator()
 						m.updateSingleFileModeDisplay()
 						return m, m.loadContentForCurrentSource()
@@ -416,8 +389,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.sourceMode = sourceCommits
 			m.pickaxeTerm = ""
-			m.funcLogName = ""
-			m.updateSourceIndicator()
+					m.updateSourceIndicator()
 			m.updateSingleFileModeDisplay()
 			m.diffView.SetContent(errMsg)
 		} else {
@@ -442,7 +414,6 @@ func (m *Model) exitSingleFileMode() {
 	m.displayMode = displayDiff
 	m.sourceMode = sourceCommits
 	m.pickaxeTerm = ""
-	m.funcLogName = ""
 	m.focus = focusSidebar
 	m.sidebar.SetFocused(true)
 	m.diffView.SetFocused(false)
@@ -457,8 +428,6 @@ func (m *Model) updateSourceIndicator() {
 		m.diffView.SetSourceIndicator("REFLOG")
 	case sourcePickaxe:
 		m.diffView.SetSourceIndicator(fmt.Sprintf("S:\"%s\"", m.pickaxeTerm))
-	case sourceFuncLog:
-		m.diffView.SetSourceIndicator(fmt.Sprintf("L:%s", m.funcLogName))
 	default:
 		m.diffView.SetSourceIndicator("")
 	}
@@ -473,7 +442,7 @@ func (m *Model) navigateNewer() tea.Cmd {
 			m.updateReflogDisplay()
 			return m.loadContentForCurrentSource()
 		}
-	case sourcePickaxe, sourceFuncLog:
+	case sourcePickaxe:
 		if m.sourceIndex > 0 {
 			m.sourceIndex--
 			m.updateSourceDisplay()
@@ -498,7 +467,7 @@ func (m *Model) navigateOlder() tea.Cmd {
 			m.updateReflogDisplay()
 			return m.loadContentForCurrentSource()
 		}
-	case sourcePickaxe, sourceFuncLog:
+	case sourcePickaxe:
 		if m.sourceIndex < len(m.sourceCommits)-1 {
 			m.sourceIndex++
 			m.updateSourceDisplay()
@@ -521,7 +490,7 @@ func (m *Model) currentCommitForSource() (string, bool) {
 		if m.reflogIndex < len(m.reflogEntries) {
 			return m.reflogEntries[m.reflogIndex].Hash, true
 		}
-	case sourcePickaxe, sourceFuncLog:
+	case sourcePickaxe:
 		if m.sourceIndex < len(m.sourceCommits) {
 			return m.sourceCommits[m.sourceIndex].Hash, true
 		}
@@ -608,11 +577,8 @@ func (m *Model) updateSourceDisplay() {
 	if m.sourceIndex < len(m.sourceCommits) {
 		commit := m.sourceCommits[m.sourceIndex]
 		var prefix string
-		switch m.sourceMode {
-		case sourcePickaxe:
+		if m.sourceMode == sourcePickaxe {
 			prefix = fmt.Sprintf("S:\"%s\": ", m.pickaxeTerm)
-		case sourceFuncLog:
-			prefix = fmt.Sprintf("L:%s: ", m.funcLogName)
 		}
 		m.sidebar.SetRevision(prefix + commit.Hash)
 		m.diffView.SetFileInfo(m.currentFile, m.sourceIndex, len(m.sourceCommits), commit.Hash)
@@ -631,11 +597,6 @@ func (m *Model) loadReflog() tea.Msg {
 
 func (m *Model) loadPickaxeCommits() tea.Msg {
 	commits, err := m.gitService.GetPickaxeCommits(m.currentFile, m.pickaxeTerm)
-	return sourceCommitsLoadedMsg{commits: commits, err: err}
-}
-
-func (m *Model) loadFuncLogCommits() tea.Msg {
-	commits, err := m.gitService.GetFunctionLogCommits(m.currentFile, m.funcLogName)
 	return sourceCommitsLoadedMsg{commits: commits, err: err}
 }
 
@@ -691,18 +652,12 @@ func (m Model) View() string {
 
 	var help string
 	if m.textInputMode != "" {
-		var label string
-		if m.textInputMode == "pickaxe" {
-			label = "Search: "
-		} else {
-			label = "Function: "
-		}
 		badge := ModeBadgeFile.Render("FILE")
-		inputView := lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render(label) + m.textInput.View()
+		inputView := lipgloss.NewStyle().Foreground(lipgloss.Color("3")).Render("Search: ") + m.textInput.View()
 		help = badge + " " + inputView
 	} else if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | f: func | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
+		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")

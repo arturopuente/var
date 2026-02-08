@@ -324,48 +324,6 @@ func (s *Service) GetPickaxeCommits(filePath, searchTerm string) ([]Commit, erro
 	return commits, nil
 }
 
-// GetFunctionLogCommits returns commits that modified a specific function
-func (s *Service) GetFunctionLogCommits(filePath, funcName string) ([]Commit, error) {
-	cmd := exec.Command("git", "--no-pager", "log", "--oneline", fmt.Sprintf("-L:%s:%s", funcName, filePath))
-	cmd.Dir = s.repoPath
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
-	}
-
-	// git log -L output interleaves commit lines with diff content
-	// Commit lines from --oneline look like: "abc1234 message"
-	// Diff lines start with diff/---/+++/@@/+/-/space or are empty
-	var commits []Commit
-	lines := strings.Split(string(output), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-		// Skip diff content lines
-		if strings.HasPrefix(line, "diff ") || strings.HasPrefix(line, "---") ||
-			strings.HasPrefix(line, "+++") || strings.HasPrefix(line, "@@") ||
-			strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") ||
-			strings.HasPrefix(line, " ") {
-			continue
-		}
-		parts := strings.SplitN(line, " ", 2)
-		if len(parts) < 2 {
-			continue
-		}
-		// Deduplicate — git log -L can repeat commit hashes
-		if len(commits) > 0 && commits[len(commits)-1].Hash == parts[0] {
-			continue
-		}
-		commits = append(commits, Commit{
-			Hash:    parts[0],
-			Message: parts[1],
-		})
-	}
-	return commits, nil
-}
-
 // IsGitRepository checks if the path is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
