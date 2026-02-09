@@ -657,11 +657,11 @@ func (m Model) View() string {
 		help = badge + " " + inputView
 	} else if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: desc | 1: back]")
+		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: info | 1: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | 2/space: file mode | [/]: commits | /: filter | n/N: hunks | z: desc | q: quit]")
+		helpText := HelpStyle.Render("[j/k: files | 2/space: file mode | [/]: commits | /: filter | n/N: hunks | z: info | q: quit]")
 		help = badge + " " + helpText
 	}
 
