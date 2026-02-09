@@ -2,7 +2,7 @@
 
 <img src="logo.png" alt="var" width="140">
 
-A terminal UI for git archeology. Browse commits, trace file history, search for changes, and read blame — without leaving the terminal.
+A terminal UI for git archeology. Browse commits, trace file history, search for changes.
 
 ![demo](demo.gif)
 
@@ -22,14 +22,14 @@ go build -o var .
 
 ## Features
 
-- **Four display modes** — diff, context (+10 lines), full file, and blame. Cycle with `c`.
-- **Pickaxe search** — press `s` to find commits that added or removed a specific string.
-- **Reflog traversal** — press `r` to navigate reflog entries instead of commit history.
-- **Word-level highlighting** — inline diffs show exactly what changed within each line.
-- **Hunk jumping** — `n`/`N` to jump between diff hunks.
-- **File filtering** — `/` to fuzzy-filter the file list.
+- **Four display modes:** diff, context (+10 lines), full file, and blame. Cycle with `c`.
+- **Pickaxe search:** press `s` to find commits that added or removed a specific string.
+- **Reflog traversal:** press `r` to navigate reflog entries instead of commit history.
+- **Word-level highlighting:** inline diffs show exactly what changed within each line.
+- **Hunk jumping:** `n`/`N` to jump between diff hunks.
+- **File filtering:** `/` to fuzzy-filter the file list.
 
-Display modes and commit sources are orthogonal — any display works with any source.
+Display modes and commit sources are orthogonal: any display works with any source.
 
 ## Keys
 
