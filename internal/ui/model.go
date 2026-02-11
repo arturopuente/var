@@ -13,7 +13,8 @@ import (
 type focus int
 
 const (
-	focusSidebar focus = iota
+	focusCommitList focus = iota
+	focusFileList
 	focusDiffView
 )
 
@@ -34,8 +35,9 @@ const (
 	sourcePickaxe                   // git log -S
 )
 
-// Model is the root model composing sidebar and diff view
+// Model is the root model composing commit list, sidebar, and diff view
 type Model struct {
+	commitList CommitList
 	sidebar    Sidebar
 	diffView   DiffView
 	gitService *git.Service
@@ -73,8 +75,10 @@ type Model struct {
 }
 
 func NewModel(gitService *git.Service) Model {
-	sidebar := NewSidebar([]FileItem{}, 40, 20)
-	sidebar.SetFocused(true)
+	commitList := NewCommitList(40, 10)
+	commitList.SetFocused(true)
+
+	sidebar := NewSidebar([]FileItem{}, 40, 10)
 	sidebar.SetRevision("working copy")
 	diffView := NewDiffView(80, 20)
 
@@ -82,10 +86,11 @@ func NewModel(gitService *git.Service) Model {
 	ti.CharLimit = 128
 
 	return Model{
+		commitList:      commitList,
 		sidebar:         sidebar,
 		diffView:        diffView,
 		gitService:      gitService,
-		focus:           focusSidebar,
+		focus:           focusCommitList,
 		commitIndex:     0, // Start at latest commit
 		fileCommitIndex: 0,
 		textInput:       ti,
@@ -198,68 +203,64 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "tab":
 			if !m.sidebar.IsFiltering() {
-				if m.focus == focusSidebar {
-					m.focus = focusDiffView
-					m.sidebar.SetFocused(false)
-					m.diffView.SetFocused(true)
-				} else {
-					m.focus = focusSidebar
-					m.sidebar.SetFocused(true)
-					m.diffView.SetFocused(false)
+				switch m.focus {
+				case focusCommitList:
+					m.setFocus(focusFileList)
+				case focusFileList:
+					m.setFocus(focusDiffView)
+				case focusDiffView:
+					m.setFocus(focusCommitList)
 				}
 				return m, nil
 			}
-		case " ":
-			// Enter single-file mode
-			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
-				m.singleFileMode = true
-				m.fileCommitIndex = 0
-				m.focus = focusDiffView
-				m.sidebar.SetFocused(false)
-				m.diffView.SetFocused(true)
-				m.diffView.SetMode(true, int(m.displayMode))
-				m.updateSourceIndicator()
+		case " ", "enter":
+			// Enter single-file mode from file list
+			if !m.sidebar.IsFiltering() && m.focus == focusFileList && m.currentFile != "" && !m.singleFileMode {
+				m.enterSingleFileMode()
 				return m, m.loadFileCommits
 			}
 		case "]":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					return m, m.navigateNewer()
+					cmd := m.navigateNewer()
+					m.syncCommitListToIndex()
+					return m, cmd
 				}
 				// Navigate repo commits - newer
 				if m.commitIndex > 0 {
 					m.commitIndex--
+					m.commitList.SelectIndex(m.commitIndex)
 					return m, m.loadFilesForCurrentCommit
 				}
 			}
 		case "[":
 			if !m.sidebar.IsFiltering() {
 				if m.singleFileMode {
-					return m, m.navigateOlder()
+					cmd := m.navigateOlder()
+					m.syncCommitListToIndex()
+					return m, cmd
 				}
 				// Navigate repo commits - older
 				if m.commitIndex < len(m.commits)-1 {
 					m.commitIndex++
+					m.commitList.SelectIndex(m.commitIndex)
 					return m, m.loadFilesForCurrentCommit
 				}
 			}
 		case "1":
-			// Switch to commit list mode
-			if !m.sidebar.IsFiltering() && m.singleFileMode {
-				m.exitSingleFileMode()
-				return m, m.loadDiffForCurrentFile
+			if !m.sidebar.IsFiltering() {
+				m.setFocus(focusCommitList)
+				return m, nil
 			}
 		case "2":
-			// Switch to single-file mode
-			if !m.sidebar.IsFiltering() && m.currentFile != "" && !m.singleFileMode {
-				m.singleFileMode = true
-				m.fileCommitIndex = 0
-				m.focus = focusDiffView
-				m.sidebar.SetFocused(false)
-				m.diffView.SetFocused(true)
-				m.diffView.SetMode(true, int(m.displayMode))
-				m.updateSourceIndicator()
-				return m, m.loadFileCommits
+			if !m.sidebar.IsFiltering() {
+				m.setFocus(focusFileList)
+				return m, nil
+			}
+		case "3":
+			if !m.sidebar.IsFiltering() {
+				m.setFocus(focusDiffView)
+				return m, nil
 			}
 		case "c":
 			// Cycle display modes in single-file mode
@@ -328,7 +329,27 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Route to focused component
-		if !m.singleFileMode && (m.sidebar.IsFiltering() || m.focus == focusSidebar) {
+		if m.focus == focusCommitList {
+			var cmd tea.Cmd
+			prevIdx := m.commitList.SelectedIndex()
+			m.commitList, cmd = m.commitList.Update(msg)
+			cmds = append(cmds, cmd)
+
+			// Check if commit selection changed
+			newIdx := m.commitList.SelectedIndex()
+			if newIdx != prevIdx {
+				if m.singleFileMode {
+					// In single-file mode, navigate file history
+					m.fileCommitIndex = newIdx
+					m.updateSingleFileModeDisplay()
+					cmds = append(cmds, m.loadContentForCurrentSource())
+				} else {
+					// In commits mode, load files for selected commit
+					m.commitIndex = newIdx
+					cmds = append(cmds, m.loadFilesForCurrentCommit)
+				}
+			}
+		} else if m.sidebar.IsFiltering() || m.focus == focusFileList {
 			var cmd tea.Cmd
 			prevSelected := m.sidebar.SelectedItem()
 			m.sidebar, cmd = m.sidebar.Update(msg)
@@ -353,6 +374,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case initialDataMsg:
 		m.commits = msg.commits
+		m.populateCommitList(msg.commits)
+		m.commitList.SelectIndex(m.commitIndex)
 		m.sidebar.SetItems(msg.files)
 		if len(msg.files) > 0 {
 			m.currentFile = msg.files[0].Path
@@ -373,11 +396,17 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case fileCommitsLoadedMsg:
 		m.fileCommits = msg.commits
+		m.populateCommitList(msg.commits)
+		m.commitList.SetTitle("History")
+		m.commitList.SelectIndex(m.fileCommitIndex)
 		m.updateSingleFileModeDisplay()
 		cmds = append(cmds, m.loadContentForCurrentSource())
 
 	case reflogLoadedMsg:
 		m.reflogEntries = msg.entries
+		m.populateCommitList(msg.entries)
+		m.commitList.SetTitle("Reflog")
+		m.commitList.SelectIndex(m.reflogIndex)
 		m.updateReflogDisplay()
 		cmds = append(cmds, m.loadContentForCurrentSource())
 
@@ -389,11 +418,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.sourceMode = sourceCommits
 			m.pickaxeTerm = ""
-					m.updateSourceIndicator()
+			m.updateSourceIndicator()
 			m.updateSingleFileModeDisplay()
 			m.diffView.SetContent(errMsg)
 		} else {
 			m.sourceCommits = msg.commits
+			m.populateCommitList(msg.commits)
+			m.commitList.SetTitle(fmt.Sprintf("S:\"%s\"", m.pickaxeTerm))
+			m.commitList.SelectIndex(m.sourceIndex)
 			m.updateSourceDisplay()
 			cmds = append(cmds, m.loadContentForCurrentSource())
 		}
@@ -408,18 +440,60 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+func (m *Model) setFocus(f focus) {
+	m.focus = f
+	m.commitList.SetFocused(f == focusCommitList)
+	m.sidebar.SetFocused(f == focusFileList)
+	m.diffView.SetFocused(f == focusDiffView)
+}
+
+func (m *Model) enterSingleFileMode() {
+	m.singleFileMode = true
+	m.fileCommitIndex = 0
+	m.setFocus(focusDiffView)
+	m.diffView.SetMode(true, int(m.displayMode))
+	m.updateSourceIndicator()
+}
+
 func (m *Model) exitSingleFileMode() {
 	m.singleFileMode = false
 	m.fileCommitIndex = 0
 	m.displayMode = displayDiff
 	m.sourceMode = sourceCommits
 	m.pickaxeTerm = ""
-	m.focus = focusSidebar
-	m.sidebar.SetFocused(true)
-	m.diffView.SetFocused(false)
+	m.setFocus(focusCommitList)
 	m.diffView.SetMode(false, 0)
 	m.diffView.SetSourceIndicator("")
+	// Restore repo commits in commit list
+	m.populateCommitList(m.commits)
+	m.commitList.SetTitle("Commits")
+	m.commitList.SelectIndex(m.commitIndex)
 	m.updateRevisionDisplay()
+}
+
+// syncCommitListToIndex updates the commit list selection to match the current index
+func (m *Model) syncCommitListToIndex() {
+	switch m.sourceMode {
+	case sourceReflog:
+		m.commitList.SelectIndex(m.reflogIndex)
+	case sourcePickaxe:
+		m.commitList.SelectIndex(m.sourceIndex)
+	default:
+		if m.singleFileMode {
+			m.commitList.SelectIndex(m.fileCommitIndex)
+		} else {
+			m.commitList.SelectIndex(m.commitIndex)
+		}
+	}
+}
+
+// populateCommitList converts git.Commits to CommitItems and sets them
+func (m *Model) populateCommitList(commits []git.Commit) {
+	items := make([]CommitItem, len(commits))
+	for i, c := range commits {
+		items[i] = CommitItem{Hash: c.Hash, Message: c.Message}
+	}
+	m.commitList.SetItems(items)
 }
 
 func (m *Model) updateSourceIndicator() {
@@ -545,7 +619,15 @@ func (m *Model) updateLayout() {
 	sidebarWidth := int(float64(m.width) * 0.20)
 	diffWidth := m.width - sidebarWidth - 4
 
-	m.sidebar.SetSize(sidebarWidth, m.height-3)
+	// Left column has two bordered panels stacked + help bar:
+	// each border = 2 lines (top+bottom), help bar = 1 line,
+	// JoinVertical separator = 1 line → total overhead = 6
+	leftContent := m.height - 6
+	commitListHeight := leftContent / 2
+	fileListHeight := leftContent - commitListHeight
+
+	m.commitList.SetSize(sidebarWidth, commitListHeight)
+	m.sidebar.SetSize(sidebarWidth, fileListHeight)
 	m.diffView.SetSize(diffWidth, m.height-3)
 }
 
@@ -657,20 +739,27 @@ func (m Model) View() string {
 		help = badge + " " + inputView
 	} else if m.singleFileMode {
 		badge := ModeBadgeFile.Render("FILE")
-		helpText := HelpStyle.Render("[c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: info | 1: back]")
+		helpText := HelpStyle.Render("[1/2/3: focus | c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: info | q: back]")
 		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[j/k: files | 2/space: file mode | [/]: commits | /: filter | n/N: hunks | z: info | q: quit]")
+		helpText := HelpStyle.Render("[1/2/3: focus | j/k: nav | space: file mode | [/]: commits | /: filter | n/N: hunks | z: info | q: quit]")
 		help = badge + " " + helpText
 	}
 
-	sidebarRendered := injectBorderLabel(m.sidebar.View(), "1", m.focus == focusSidebar)
-	diffRendered := injectBorderLabel(m.diffView.View(), "2", m.focus == focusDiffView)
+	commitListRendered := injectBorderLabel(m.commitList.View(), "1", m.focus == focusCommitList)
+	sidebarRendered := injectBorderLabel(m.sidebar.View(), "2", m.focus == focusFileList)
+	diffRendered := injectBorderLabel(m.diffView.View(), "3", m.focus == focusDiffView)
+
+	leftColumn := lipgloss.JoinVertical(
+		lipgloss.Left,
+		commitListRendered,
+		sidebarRendered,
+	)
 
 	main := lipgloss.JoinHorizontal(
 		lipgloss.Top,
-		sidebarRendered,
+		leftColumn,
 		diffRendered,
 	)
 
