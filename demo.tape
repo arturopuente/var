@@ -10,7 +10,17 @@ Type "./var"
 Enter
 Sleep 2s
 
-# Browse commits — back 3
+# Focus panels: commits, files, diff
+Type "1"
+Sleep 800ms
+Type "2"
+Sleep 800ms
+Type "3"
+Sleep 800ms
+Type "1"
+Sleep 800ms
+
+# Browse commits -- back 3
 Type "["
 Sleep 800ms
 Type "["
@@ -26,7 +36,43 @@ Sleep 800ms
 Type "]"
 Sleep 800ms
 
-# Enter single-file mode
+# Open file tree
+Type "t"
+Sleep 1.5s
+
+# Navigate tree
+Type "j"
+Sleep 500ms
+Type "j"
+Sleep 500ms
+Type "j"
+Sleep 500ms
+
+# Expand a directory
+Enter
+Sleep 800ms
+
+# Navigate into it
+Type "j"
+Sleep 500ms
+Type "j"
+Sleep 500ms
+
+# Select a file from tree -- enters single-file mode
+Enter
+Sleep 1.5s
+
+# Exit single-file mode back to commits
+Type "q"
+Sleep 1s
+
+# Open tree again and close with t
+Type "t"
+Sleep 1s
+Type "t"
+Sleep 1s
+
+# Enter single-file mode from file list
 Type " "
 Sleep 1.5s
 
