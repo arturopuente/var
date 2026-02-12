@@ -16,6 +16,7 @@ const (
 	focusCommitList focus = iota
 	focusFileList
 	focusDiffView
+	focusFileTree
 )
 
 type displayMode int
@@ -40,11 +41,13 @@ type Model struct {
 	commitList CommitList
 	sidebar    Sidebar
 	diffView   DiffView
+	fileTree   FileTree
 	gitService *git.Service
 
-	focus  focus
-	width  int
-	height int
+	focus        focus
+	showFileTree bool
+	width        int
+	height       int
 
 	// Commit navigation (repo-wide)
 	commits     []git.Commit // All recent commits
@@ -81,6 +84,7 @@ func NewModel(gitService *git.Service) Model {
 	sidebar := NewSidebar([]FileItem{}, 40, 10)
 	sidebar.SetRevision("working copy")
 	diffView := NewDiffView(80, 20)
+	fileTree := NewFileTree(40, 20)
 
 	ti := textinput.New()
 	ti.CharLimit = 128
@@ -89,6 +93,7 @@ func NewModel(gitService *git.Service) Model {
 		commitList:      commitList,
 		sidebar:         sidebar,
 		diffView:        diffView,
+		fileTree:        fileTree,
 		gitService:      gitService,
 		focus:           focusCommitList,
 		commitIndex:     0, // Start at latest commit
@@ -155,6 +160,10 @@ type sourceCommitsLoadedMsg struct {
 	err     error
 }
 
+type treeFilesLoadedMsg struct {
+	paths []string
+}
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -192,8 +201,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch msg.String() {
-		case "q", "ctrl+c":
+		case "ctrl+c":
+			return m, tea.Quit
+		case "q":
 			if !m.sidebar.IsFiltering() {
+				if m.showFileTree {
+					m.showFileTree = false
+					m.setFocus(focusCommitList)
+					m.updateLayout()
+					return m, nil
+				}
 				if m.singleFileMode {
 					// Exit single-file mode
 					m.exitSingleFileMode()
@@ -203,17 +220,51 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "tab":
 			if !m.sidebar.IsFiltering() {
-				switch m.focus {
-				case focusCommitList:
-					m.setFocus(focusFileList)
-				case focusFileList:
-					m.setFocus(focusDiffView)
-				case focusDiffView:
-					m.setFocus(focusCommitList)
+				if m.showFileTree {
+					// Tree mode: toggle between tree and diff
+					if m.focus == focusFileTree {
+						m.setFocus(focusDiffView)
+					} else {
+						m.setFocus(focusFileTree)
+					}
+				} else {
+					switch m.focus {
+					case focusCommitList:
+						m.setFocus(focusFileList)
+					case focusFileList:
+						m.setFocus(focusDiffView)
+					case focusDiffView:
+						m.setFocus(focusCommitList)
+					}
 				}
 				return m, nil
 			}
+		case "t":
+			// Toggle file tree (only in commits mode, not single-file, not filtering)
+			if !m.sidebar.IsFiltering() && !m.singleFileMode {
+				m.showFileTree = !m.showFileTree
+				if m.showFileTree {
+					m.setFocus(focusFileTree)
+					m.updateLayout()
+					return m, m.loadTreeFiles
+				}
+				m.setFocus(focusCommitList)
+				m.updateLayout()
+				return m, nil
+			}
 		case " ", "enter":
+			// File tree: select a file to enter single-file mode
+			if m.showFileTree && m.focus == focusFileTree && !m.fileTree.IsSelectedDir() {
+				selectedPath := m.fileTree.SelectedPath()
+				if selectedPath != "" {
+					m.currentFile = selectedPath
+					m.showFileTree = false
+					m.enterSingleFileMode()
+					m.updateLayout()
+					return m, m.loadFileCommits
+				}
+				return m, nil
+			}
 			// Enter single-file mode from file list
 			if !m.sidebar.IsFiltering() && m.focus == focusFileList && m.currentFile != "" && !m.singleFileMode {
 				m.enterSingleFileMode()
@@ -249,12 +300,20 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "1":
 			if !m.sidebar.IsFiltering() {
-				m.setFocus(focusCommitList)
+				if m.showFileTree {
+					m.setFocus(focusFileTree)
+				} else {
+					m.setFocus(focusCommitList)
+				}
 				return m, nil
 			}
 		case "2":
 			if !m.sidebar.IsFiltering() {
-				m.setFocus(focusFileList)
+				if m.showFileTree {
+					m.setFocus(focusFileTree) // no panel 2 in tree mode
+				} else {
+					m.setFocus(focusFileList)
+				}
 				return m, nil
 			}
 		case "3":
@@ -308,6 +367,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		case "esc":
 			if !m.sidebar.IsFiltering() {
+				if m.showFileTree {
+					m.showFileTree = false
+					m.setFocus(focusCommitList)
+					m.updateLayout()
+					return m, nil
+				}
 				if m.singleFileMode {
 					// If a source is active, deactivate it first
 					if m.sourceMode != sourceCommits {
@@ -329,7 +394,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		// Route to focused component
-		if m.focus == focusCommitList {
+		if m.focus == focusFileTree {
+			var cmd tea.Cmd
+			m.fileTree, cmd = m.fileTree.Update(msg)
+			cmds = append(cmds, cmd)
+		} else if m.focus == focusCommitList {
 			var cmd tea.Cmd
 			prevIdx := m.commitList.SelectedIndex()
 			m.commitList, cmd = m.commitList.Update(msg)
@@ -430,6 +499,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.loadContentForCurrentSource())
 		}
 
+	case treeFilesLoadedMsg:
+		m.fileTree.SetFiles(msg.paths)
+
 	case diffLoadedMsg:
 		m.diffView.SetContent(msg.content)
 
@@ -445,6 +517,7 @@ func (m *Model) setFocus(f focus) {
 	m.commitList.SetFocused(f == focusCommitList)
 	m.sidebar.SetFocused(f == focusFileList)
 	m.diffView.SetFocused(f == focusDiffView)
+	m.fileTree.SetFocused(f == focusFileTree)
 }
 
 func (m *Model) enterSingleFileMode() {
@@ -619,16 +692,23 @@ func (m *Model) updateLayout() {
 	sidebarWidth := int(float64(m.width) * 0.20)
 	diffWidth := m.width - sidebarWidth - 4
 
-	// Left column has two bordered panels stacked + help bar:
-	// each border = 2 lines (top+bottom), help bar = 1 line,
-	// JoinVertical separator = 1 line → total overhead = 6
-	leftContent := m.height - 6
-	commitListHeight := leftContent / 2
-	fileListHeight := leftContent - commitListHeight
+	if m.showFileTree {
+		// Tree mode: single panel on the left, same height as diff
+		m.fileTree.SetSize(sidebarWidth, m.height-3)
+		m.diffView.SetSize(diffWidth, m.height-3)
+	} else {
+		// Normal mode: two panels stacked on the left
+		// Left column has two bordered panels stacked + help bar:
+		// each border = 2 lines (top+bottom), help bar = 1 line,
+		// JoinVertical separator = 1 line -> total overhead = 6
+		leftContent := m.height - 6
+		commitListHeight := leftContent / 2
+		fileListHeight := leftContent - commitListHeight
 
-	m.commitList.SetSize(sidebarWidth, commitListHeight)
-	m.sidebar.SetSize(sidebarWidth, fileListHeight)
-	m.diffView.SetSize(diffWidth, m.height-3)
+		m.commitList.SetSize(sidebarWidth, commitListHeight)
+		m.sidebar.SetSize(sidebarWidth, fileListHeight)
+		m.diffView.SetSize(diffWidth, m.height-3)
+	}
 }
 
 func (m *Model) updateRevisionDisplay() {
@@ -680,6 +760,15 @@ func (m *Model) loadReflog() tea.Msg {
 func (m *Model) loadPickaxeCommits() tea.Msg {
 	commits, err := m.gitService.GetPickaxeCommits(m.currentFile, m.pickaxeTerm)
 	return sourceCommitsLoadedMsg{commits: commits, err: err}
+}
+
+func (m *Model) loadTreeFiles() tea.Msg {
+	// Use HEAD for the tree
+	paths, err := m.gitService.GetTreeFiles("HEAD")
+	if err != nil {
+		return treeFilesLoadedMsg{paths: nil}
+	}
+	return treeFilesLoadedMsg{paths: paths}
 }
 
 func (m *Model) loadFilesForCurrentCommit() tea.Msg {
@@ -741,21 +830,31 @@ func (m Model) View() string {
 		badge := ModeBadgeFile.Render("FILE")
 		helpText := HelpStyle.Render("[1/2/3: focus | c: view | r: reflog | s: search | d/u: scroll | n/N: hunks | [/]: history | z: info | q: back]")
 		help = badge + " " + helpText
+	} else if m.showFileTree {
+		badge := ModeBadgeTree.Render("TREE")
+		helpText := HelpStyle.Render("[j/k: nav | enter: open | h/l: collapse/expand | t/esc: close | q: quit]")
+		help = badge + " " + helpText
 	} else {
 		badge := ModeBadgeCommits.Render("COMMITS")
-		helpText := HelpStyle.Render("[1/2/3: focus | j/k: nav | space: file mode | [/]: commits | /: filter | n/N: hunks | z: info | q: quit]")
+		helpText := HelpStyle.Render("[1/2/3: focus | j/k: nav | space: file mode | t: tree | [/]: commits | /: filter | n/N: hunks | z: info | q: quit]")
 		help = badge + " " + helpText
 	}
 
-	commitListRendered := injectBorderLabel(m.commitList.View(), "1", m.focus == focusCommitList)
-	sidebarRendered := injectBorderLabel(m.sidebar.View(), "2", m.focus == focusFileList)
 	diffRendered := injectBorderLabel(m.diffView.View(), "3", m.focus == focusDiffView)
 
-	leftColumn := lipgloss.JoinVertical(
-		lipgloss.Left,
-		commitListRendered,
-		sidebarRendered,
-	)
+	var leftColumn string
+	if m.showFileTree {
+		treeRendered := injectBorderLabel(m.fileTree.View(), "1", m.focus == focusFileTree)
+		leftColumn = treeRendered
+	} else {
+		commitListRendered := injectBorderLabel(m.commitList.View(), "1", m.focus == focusCommitList)
+		sidebarRendered := injectBorderLabel(m.sidebar.View(), "2", m.focus == focusFileList)
+		leftColumn = lipgloss.JoinVertical(
+			lipgloss.Left,
+			commitListRendered,
+			sidebarRendered,
+		)
+	}
 
 	main := lipgloss.JoinHorizontal(
 		lipgloss.Top,

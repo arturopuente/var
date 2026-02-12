@@ -36,6 +36,12 @@ var (
 			Bold(true).
 			Padding(0, 1)
 
+	ModeBadgeTree = lipgloss.NewStyle().
+			Background(lipgloss.Color("#2e7d32")).
+			Foreground(lipgloss.Color("#ffffff")).
+			Bold(true).
+			Padding(0, 1)
+
 	// View mode tabs for diff header
 	ViewTabActive = lipgloss.NewStyle().
 			Background(lipgloss.Color("#7c4dff")).

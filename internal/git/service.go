@@ -324,6 +324,25 @@ func (s *Service) GetPickaxeCommits(filePath, searchTerm string) ([]Commit, erro
 	return commits, nil
 }
 
+// GetTreeFiles returns all files in the repository at a given commit
+func (s *Service) GetTreeFiles(commitHash string) ([]string, error) {
+	cmd := exec.Command("git", "ls-tree", "-r", "--name-only", commitHash)
+	cmd.Dir = s.repoPath
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, line := range strings.Split(string(output), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			files = append(files, line)
+		}
+	}
+	return files, nil
+}
+
 // IsGitRepository checks if the path is a git repository
 func IsGitRepository(path string) bool {
 	cmd := exec.Command("git", "rev-parse", "--git-dir")
