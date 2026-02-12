@@ -1,0 +1,19 @@
+version: 2
+
+builds:
+  - binary: var
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+brews:
+  - repository:
+      owner: arturopuente
+      name: homebrew-tap
+    homepage: https://github.com/arturopuente/var
+    description: A terminal UI for exploring git history

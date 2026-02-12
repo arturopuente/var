@@ -10,6 +10,8 @@ import (
 	"var/internal/ui"
 )
 
+var version = "dev"
+
 func main() {
 	// Parse optional path argument
 	repoPath := "."
