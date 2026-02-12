@@ -15,5 +15,6 @@ brews:
   - repository:
       owner: arturopuente
       name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_GITHUB_TOKEN }}"
     homepage: https://github.com/arturopuente/var
     description: A terminal UI for exploring git history
