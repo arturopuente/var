@@ -21,7 +21,7 @@ go build -o var .
 ## Usage
 
 ```bash
-./var          # open in current repo
+var            # open in current repo
 ```
 
 `var` opens in **commit list mode**, showing files changed in each commit. Press `Space` to drill into a file's full history in **single-file mode**.
@@ -65,3 +65,15 @@ Display modes and commit sources are orthogonal: any display works with any sour
 | `z` | Toggle commit description |
 | `Esc` | Deactivate source / exit mode |
 | `1` | Back to commit list |
+
+## Development
+
+### Releasing
+
+```bash
+./release.sh patch   # v0.1.0 -> v0.1.1
+./release.sh minor   # v0.1.0 -> v0.2.0
+./release.sh major   # v0.1.0 -> v1.0.0
+```
+
+This tags the current commit and pushes to trigger the release workflow, which builds binaries and updates the Homebrew formula.
