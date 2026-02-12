@@ -34,6 +34,7 @@ var            # open in current repo
 - **Word-level highlighting:** inline diffs show exactly what changed within each line.
 - **Hunk jumping:** `n`/`N` to jump between diff hunks.
 - **File filtering:** `/` to fuzzy-filter the file list.
+- **File tree:** press `t` to toggle a full-repo tree view alongside the diff.
 
 Display modes and commit sources are orthogonal: any display works with any source.
 
@@ -48,6 +49,7 @@ Display modes and commit sources are orthogonal: any display works with any sour
 | `Space` | Enter single-file mode |
 | `/` | Filter files |
 | `n/N` | Next/previous hunk |
+| `t` | Toggle file tree |
 | `Tab` | Switch focus |
 | `z` | Toggle commit description |
 | `q` | Quit |
